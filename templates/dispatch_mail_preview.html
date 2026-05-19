@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>派送邮件预览</title>
+    <link rel="stylesheet" href="/static/styles.css?v=dispatch-layout-wide-20260430">
+    <link rel="stylesheet" href="/static/modules/dispatch_mail/styles.css">
+</head>
+<body>
+<main class="shell wide dispatch-workbench dispatch-match-shell">
+    <section class="topbar dispatch-topbar">
+        <div>
+            <p class="eyebrow">Dispatch Mail · Step 1</p>
+            <h1>附件匹配与改名预览</h1>
+            <p class="lead">先确认每票对应的 DQT 装箱单和交仓文件，再进入下一步填写邮件信息。页面会同步显示规则命名、当前顺位和最终文件名。</p>
+        </div>
+        <div class="actions">
+            <a class="secondary-btn" href="/modules/dispatch-mail">重新上传</a>
+            <a class="secondary-btn" href="/">返回首页</a>
+        </div>
+    </section>
+
+    {% if saved %}
+    <div class="ufo-alert" role="status">
+        <span class="ufo-alert-label">已保存</span>
+        <span class="ufo-alert-message">当前匹配状态已经锁定到本次会话中。你仍然可以继续调整，再次保存即可。</span>
+    </div>
+    {% endif %}
+
+    {% if result.warnings %}
+    <ul class="alert-list">
+        {% for warning in result.warnings %}
+        <li>{{ warning }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    <form action="/modules/dispatch-mail/preview/{{ session_id }}/update" method="post" class="dispatch-match-form">
+        <section class="panel dispatch-match-panel">
+            <header class="dispatch-section-head dispatch-section-head-spacious">
+                <div>
+                    <h2>本次匹配总览</h2>
+                    <p class="hint">下拉框只保留“当前票已选中的文件”和“尚未被别票占用的文件”。如果你手动补录，先保存一次，当前顺位和规则文件名就会稳定下来。</p>
+                </div>
+                <div class="dispatch-match-head-actions">
+                    {% if result.master %}
+                    <a class="secondary-btn" target="_blank" href="/modules/dispatch-mail/source/{{ session_id }}/master/0">查看 Tan# 总表原文件</a>
+                    {% endif %}
+                    <span class="status-chip success">共 {{ result.tickets|length }} 票</span>
+                    <span class="status-chip {% if result.unmatched_dqths %}warn{% else %}success{% endif %}">未匹配 DQT {{ result.unmatched_dqths|length }}</span>
+                    <span class="status-chip {% if result.unmatched_sos %}warn{% else %}success{% endif %}">未匹配交仓 {{ result.unmatched_sos|length }}</span>
+                </div>
+            </header>
+        </section>
+
+        <section class="dispatch-match-cards">
+            {% for ticket in result.tickets %}
+            <article class="panel dispatch-match-card {% if not ticket.dqth or not ticket.so %}is-warn{% endif %}">
+                <header class="dispatch-match-card-head">
+                    <div>
+                        <p class="dispatch-ticket-order">第 {{ ticket.index }} 票</p>
+                        <h2>{{ ticket.tan_no }}</h2>
+                        <p class="dispatch-match-meta">
+                            {{ dispatch_load_label(ticket) }} · {{ display_number(ticket.gross_weight) }} KG ·
+                            PO {{ ticket.customer_pos|join(', ') if ticket.customer_pos else '—' }}
+                        </p>
+                        {% if ticket.remark %}
+                        <p class="dispatch-match-remark">{{ ticket.remark }}</p>
+                        {% endif %}
+                    </div>
+                    <div class="dispatch-match-badges">
+                        <span class="status-chip">{{ display_number(ticket.pallets) }} 板</span>
+                        <span class="status-chip">{{ display_number(ticket.cartons) }} 箱</span>
+                        <span class="status-chip {% if ticket.dqth and ticket.so %}success{% else %}warn{% endif %}">
+                            {% if ticket.dqth and ticket.so %}匹配完整{% else %}待补文件{% endif %}
+                        </span>
+                    </div>
+                </header>
+
+                <div class="dispatch-match-card-body">
+                    <section class="dispatch-shot-card">
+                        <div class="dispatch-shot-head">
+                            <div>
+                                <h3>总表截图</h3>
+                                <p class="hint">这里只保留序号、Tan号、PO、PCS数量、板数和箱数，专门给你在匹配时快速核对。</p>
+                            </div>
+                        </div>
+                        {% if ticket.table_image_path %}
+                        <img class="dispatch-shot-large" src="/modules/dispatch-mail/image/{{ session_id }}/{{ ticket.index }}" alt="{{ ticket.tan_no }}">
+                        {% else %}
+                        <p class="empty">当前没有可显示的总表截图。</p>
+                        {% endif %}
+                    </section>
+
+                    <div class="dispatch-match-attachment-grid">
+                        <section class="dispatch-match-attachment" data-kind="dqth" data-load-label="{{ dispatch_load_label(ticket) }}" data-fixed-order="{{ ticket.dqth_expected_order or '' }}">
+                            <div class="dispatch-match-block-head">
+                                <div>
+                                    <h3>DQT 装箱单</h3>
+                                    <p class="hint">补录后会按“{{ dispatch_load_label(ticket) }}装箱单(顺序号)”自动命名。</p>
+                                </div>
+                                <span class="status-chip {% if ticket.dqth %}success{% else %}warn{% endif %}">
+                                    {% if ticket.dqth %}已匹配{% else %}待匹配{% endif %}
+                                </span>
+                            </div>
+
+                            <label class="field">
+                                <span>选择文件</span>
+                                <select
+                                    name="dqth_match_{{ ticket.index }}"
+                                    class="js-dispatch-select"
+                                    data-kind="dqth"
+                                    data-ticket="{{ ticket.index }}"
+                                >
+                                    <option value="">暂不绑定</option>
+                                    {% for dqth in result.dqths %}
+                                    {% if dqth.matched_ticket_index is none or ticket.dqth is sameas dqth %}
+                                    <option
+                                        value="{{ loop.index0 }}"
+                                        data-preview-href="/modules/dispatch-mail/source/{{ session_id }}/dqth/{{ dqth.preview_index }}"
+                                        data-open-href="/modules/dispatch-mail/source-file/{{ session_id }}/dqth/{{ dqth.preview_index }}"
+                                        data-name="{{ dqth.attachment.original_name }}"
+                                        data-ext="{{ '.' ~ dqth.attachment.original_name.rsplit('.', 1)[1] if '.' in dqth.attachment.original_name else '.bin' }}"
+                                        {% if ticket.dqth is sameas dqth %}selected{% endif %}
+                                    >{{ dqth.attachment.original_name }}</option>
+                                    {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </label>
+
+                            <div class="dispatch-current-source">
+                                <span class="cell-subtle js-selected-name">{{ ticket.dqth.attachment.original_name if ticket.dqth else '当前未选择文件' }}</span>
+                                <div class="dispatch-source-actions">
+                                    <a
+                                        class="secondary-link js-preview-link {% if not ticket.dqth %}is-disabled{% endif %}"
+                                        {% if ticket.dqth %}href="/modules/dispatch-mail/source/{{ session_id }}/dqth/{{ ticket.dqth.preview_index }}"{% endif %}
+                                        target="_blank"
+                                    >查看预览</a>
+                                    <a
+                                        class="secondary-link js-open-link {% if not ticket.dqth %}is-disabled{% endif %}"
+                                        {% if ticket.dqth %}href="/modules/dispatch-mail/source-file/{{ session_id }}/dqth/{{ ticket.dqth.preview_index }}"{% endif %}
+                                        target="_blank"
+                                    >打开原文件</a>
+                                </div>
+                            </div>
+
+                            <div class="dispatch-rule-box">
+                                <div>
+                                    <span class="dispatch-rule-label">规则命名预览</span>
+                                    <strong class="js-rule-name">
+                                        {% if ticket.dqth and ticket.dqth.suggested_name %}
+                                        {{ ticket.dqth.suggested_name }}
+                                        {% else %}
+                                        选择文件后会按规则生成
+                                        {% endif %}
+                                    </strong>
+                                </div>
+                                <div>
+                                    <span class="dispatch-rule-label">当前顺位</span>
+                                    <strong class="js-rule-order">
+                                        {% if ticket.dqth and ticket.dqth.suggested_order %}
+                                        第 {{ ticket.dqth.suggested_order }} 号
+                                        {% elif ticket.dqth_expected_order %}
+                                        如果现在绑定并保存，预计排第 {{ ticket.dqth_expected_order }} 号
+                                        {% else %}
+                                        等待选择
+                                        {% endif %}
+                                    </strong>
+                                </div>
+                            </div>
+
+                            <label class="field">
+                                <span>最终文件名</span>
+                                <input
+                                    type="text"
+                                    name="dqth_name_{{ ticket.index }}"
+                                    class="js-final-name"
+                                    data-autofill="{% if not ticket.dqth or not ticket.dqth.final_name or ticket.dqth.final_name == ticket.dqth.suggested_name or ticket.dqth.final_name == ticket.dqth.attachment.original_name %}true{% else %}false{% endif %}"
+                                    value="{% if ticket.dqth %}{{ ticket.dqth.suggested_name or ticket.dqth.final_name }}{% endif %}"
+                                    placeholder="默认会跟随上面的规则命名，你也可以手工修改"
+                                >
+                            </label>
+                        </section>
+
+                        <section class="dispatch-match-attachment" data-kind="so" data-load-label="{{ dispatch_load_label(ticket) }}" data-fixed-order="{{ ticket.so_expected_order or '' }}">
+                            <div class="dispatch-match-block-head">
+                                <div>
+                                    <h3>交仓文件</h3>
+                                    <p class="hint">补录后会按“{{ dispatch_load_label(ticket) }}交仓文件(顺序号)”自动命名。</p>
+                                </div>
+                                <span class="status-chip {% if ticket.so %}success{% else %}warn{% endif %}">
+                                    {% if ticket.so %}已匹配{% else %}待匹配{% endif %}
+                                </span>
+                            </div>
+
+                            <label class="field">
+                                <span>选择文件</span>
+                                <select
+                                    name="so_match_{{ ticket.index }}"
+                                    class="js-dispatch-select"
+                                    data-kind="so"
+                                    data-ticket="{{ ticket.index }}"
+                                >
+                                    <option value="">暂不绑定</option>
+                                    {% for so in result.sos %}
+                                    {% if so.matched_ticket_index is none or ticket.so is sameas so %}
+                                    <option
+                                        value="{{ loop.index0 }}"
+                                        data-preview-href="/modules/dispatch-mail/source/{{ session_id }}/so/{{ so.preview_index }}"
+                                        data-open-href="/modules/dispatch-mail/source-file/{{ session_id }}/so/{{ so.preview_index }}"
+                                        data-name="{{ so.attachment.original_name }}"
+                                        data-ext="{{ '.' ~ so.attachment.original_name.rsplit('.', 1)[1] if '.' in so.attachment.original_name else '.bin' }}"
+                                        {% if ticket.so is sameas so %}selected{% endif %}
+                                    >{{ so.attachment.original_name }}</option>
+                                    {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </label>
+
+                            <div class="dispatch-current-source">
+                                <span class="cell-subtle js-selected-name">{{ ticket.so.attachment.original_name if ticket.so else '当前未选择文件' }}</span>
+                                <div class="dispatch-source-actions">
+                                    <a
+                                        class="secondary-link js-preview-link {% if not ticket.so %}is-disabled{% endif %}"
+                                        {% if ticket.so %}href="/modules/dispatch-mail/source/{{ session_id }}/so/{{ ticket.so.preview_index }}"{% endif %}
+                                        target="_blank"
+                                    >查看预览</a>
+                                    <a
+                                        class="secondary-link js-open-link {% if not ticket.so %}is-disabled{% endif %}"
+                                        {% if ticket.so %}href="/modules/dispatch-mail/source-file/{{ session_id }}/so/{{ ticket.so.preview_index }}"{% endif %}
+                                        target="_blank"
+                                    >打开原文件</a>
+                                </div>
+                            </div>
+
+                            <div class="dispatch-rule-box">
+                                <div>
+                                    <span class="dispatch-rule-label">规则命名预览</span>
+                                    <strong class="js-rule-name">
+                                        {% if ticket.so and ticket.so.suggested_name %}
+                                        {{ ticket.so.suggested_name }}
+                                        {% else %}
+                                        选择文件后会按规则生成
+                                        {% endif %}
+                                    </strong>
+                                </div>
+                                <div>
+                                    <span class="dispatch-rule-label">当前顺位</span>
+                                    <strong class="js-rule-order">
+                                        {% if ticket.so and ticket.so.suggested_order %}
+                                        第 {{ ticket.so.suggested_order }} 号
+                                        {% elif ticket.so_expected_order %}
+                                        如果现在绑定并保存，预计排第 {{ ticket.so_expected_order }} 号
+                                        {% else %}
+                                        等待选择
+                                        {% endif %}
+                                    </strong>
+                                </div>
+                            </div>
+
+                            <label class="field">
+                                <span>最终文件名</span>
+                                <input
+                                    type="text"
+                                    name="so_name_{{ ticket.index }}"
+                                    class="js-final-name"
+                                    data-autofill="{% if not ticket.so or not ticket.so.final_name or ticket.so.final_name == ticket.so.suggested_name or ticket.so.final_name == ticket.so.attachment.original_name %}true{% else %}false{% endif %}"
+                                    value="{% if ticket.so %}{{ ticket.so.suggested_name or ticket.so.final_name }}{% endif %}"
+                                    placeholder="默认会跟随上面的规则命名，你也可以手工修改"
+                                >
+                            </label>
+                        </section>
+                    </div>
+                </div>
+            </article>
+            {% endfor %}
+        </section>
+
+        <section class="grid two dispatch-unmatched-grid">
+            <article class="panel dispatch-unmatched-panel">
+                <header class="dispatch-subpanel-head">
+                    <h2>未匹配 DQT</h2>
+                    <span class="status-chip {% if result.unmatched_dqths %}warn{% else %}success{% endif %}">{{ result.unmatched_dqths|length }}</span>
+                </header>
+                {% if result.unmatched_dqths %}
+                <ul class="dispatch-unmatched">
+                    {% for item in result.unmatched_dqths %}
+                    <li>
+                        <div>
+                            <strong>{{ item.attachment.original_name }}</strong>
+                            <div class="cell-subtle">PO: {{ item.customer_pos|join(', ') if item.customer_pos else '—' }}</div>
+                        </div>
+                        <div class="dispatch-source-actions">
+                            <a class="secondary-link" target="_blank" href="/modules/dispatch-mail/source/{{ session_id }}/dqth/{{ item.preview_index }}">查看预览</a>
+                            <a class="secondary-link" target="_blank" href="/modules/dispatch-mail/source-file/{{ session_id }}/dqth/{{ item.preview_index }}">打开原文件</a>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty">没有未匹配 DQT。</p>
+                {% endif %}
+            </article>
+
+            <article class="panel dispatch-unmatched-panel">
+                <header class="dispatch-subpanel-head">
+                    <h2>未匹配交仓文件</h2>
+                    <span class="status-chip {% if result.unmatched_sos %}warn{% else %}success{% endif %}">{{ result.unmatched_sos|length }}</span>
+                </header>
+                {% if result.unmatched_sos %}
+                <ul class="dispatch-unmatched">
+                    {% for item in result.unmatched_sos %}
+                    <li>
+                        <div>
+                            <strong>{{ item.attachment.original_name }}</strong>
+                            <div class="cell-subtle">相似度 {{ '%.0f'|format(item.score * 100) }}%</div>
+                        </div>
+                        <div class="dispatch-source-actions">
+                            <a class="secondary-link" target="_blank" href="/modules/dispatch-mail/source/{{ session_id }}/so/{{ item.preview_index }}">查看预览</a>
+                            <a class="secondary-link" target="_blank" href="/modules/dispatch-mail/source-file/{{ session_id }}/so/{{ item.preview_index }}">打开原文件</a>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty">没有未匹配交仓文件。</p>
+                {% endif %}
+            </article>
+        </section>
+
+        <div class="dispatch-sticky-actions dispatch-sticky-actions-split">
+            <div class="dispatch-sticky-copy">
+                <strong>先保存，再进入下一步</strong>
+                <p class="hint">保存会锁定当前绑定状态，并刷新规则命名和顺位。即使之后发现绑错了，你也可以继续修改后再次保存。</p>
+            </div>
+            <div class="dispatch-sticky-buttons">
+                <button type="submit" class="secondary-btn" name="action" value="save">保存当前匹配</button>
+                <button type="submit" class="primary-btn" name="action" value="next">下一步 · 填邮件信息</button>
+            </div>
+        </div>
+    </form>
+</main>
+
+<script>
+(() => {
+    const kindLabelMap = {
+        dqth: "装箱单",
+        so: "交仓文件",
+    };
+
+    function setLinkState(link, href) {
+        if (!link) {
+            return;
+        }
+        if (href) {
+            link.href = href;
+            link.classList.remove("is-disabled");
+            link.removeAttribute("aria-disabled");
+            return;
+        }
+        link.removeAttribute("href");
+        link.classList.add("is-disabled");
+        link.setAttribute("aria-disabled", "true");
+    }
+
+    function refreshRulePreview(kind) {
+        const blocks = [...document.querySelectorAll(`.dispatch-match-attachment[data-kind="${kind}"]`)];
+        const counts = new Map();
+
+        blocks.forEach((block) => {
+            const loadLabel = block.dataset.loadLabel || "";
+            const select = block.querySelector(".js-dispatch-select");
+            const ruleName = block.querySelector(".js-rule-name");
+            const ruleOrder = block.querySelector(".js-rule-order");
+            const selectedName = block.querySelector(".js-selected-name");
+            const previewLink = block.querySelector(".js-preview-link");
+            const openLink = block.querySelector(".js-open-link");
+            const finalInput = block.querySelector(".js-final-name");
+            const selectedOption = select.options[select.selectedIndex];
+            const hasSelection = Boolean(select.value);
+            const countedOrder = (counts.get(loadLabel) || 0) + 1;
+            const fixedOrder = Number(block.dataset.fixedOrder || 0);
+            const nextOrder = fixedOrder || countedOrder;
+
+            if (selectedName) {
+                selectedName.textContent = hasSelection ? (selectedOption.dataset.name || "") : "当前未选择文件";
+            }
+            setLinkState(previewLink, hasSelection ? selectedOption.dataset.previewHref : "");
+            setLinkState(openLink, hasSelection ? selectedOption.dataset.openHref : "");
+
+            if (!hasSelection) {
+                if (ruleName) {
+                    ruleName.textContent = "选择文件后会按规则生成";
+                }
+                if (ruleOrder) {
+                    ruleOrder.textContent = `如果现在绑定并保存，预计排第 ${nextOrder} 号`;
+                }
+                if (finalInput && finalInput.dataset.autofill === "true") {
+                    finalInput.value = "";
+                }
+                return;
+            }
+
+            counts.set(loadLabel, Math.max(countedOrder, nextOrder));
+            const generatedName = `${loadLabel}${kindLabelMap[kind]}(${nextOrder})${selectedOption.dataset.ext || ".bin"}`;
+            if (ruleName) {
+                ruleName.textContent = generatedName;
+            }
+            if (ruleOrder) {
+                ruleOrder.textContent = `当前会排第 ${nextOrder} 号`;
+            }
+            if (finalInput && finalInput.dataset.autofill === "true") {
+                finalInput.value = generatedName;
+            }
+        });
+    }
+
+    document.querySelectorAll(".js-final-name").forEach((input) => {
+        input.addEventListener("input", () => {
+            input.dataset.autofill = input.value.trim() ? "false" : "true";
+        });
+    });
+
+    document.querySelectorAll(".js-dispatch-select").forEach((select) => {
+        select.addEventListener("change", () => {
+            refreshRulePreview(select.dataset.kind);
+        });
+    });
+
+    refreshRulePreview("dqth");
+    refreshRulePreview("so");
+})();
+</script>
+</body>
+</html>

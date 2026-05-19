@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking 生成器</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/modules/booking/styles.css">
+</head>
+<body>
+<main class="shell wide">
+    <section class="topbar booking-topbar">
+        <div>
+            <p class="eyebrow">Booking Form · 自动填表</p>
+            <h1>Booking 生成器</h1>
+            <p class="lead">上传客户 CCIXLS，按供应商规则清洗字段、匹配 PACKADCXLS 发票号，输出填好的 booking_template_zh。</p>
+        </div>
+        <div class="actions">
+            <a class="secondary-btn" href="/">返回首页</a>
+        </div>
+    </section>
+
+    {% if error %}
+    <div class="booking-alert is-error" role="alert">
+        <span class="booking-alert-label">出错</span>
+        <span class="booking-alert-message">{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <section class="panel booking-panel">
+        <header class="booking-section-head">
+            <div>
+                <h2>① 上传与预览</h2>
+                <p class="hint">优先上传客户原始 <code>.eml</code>，系统会自动提取附件中的 CCIXLS 和 PACKADCXLS。下方两个 <code>.xls</code> 仅作为兜底，当客户邮件不完整或格式特殊时使用。</p>
+            </div>
+            <span class="status-chip info">配置驱动</span>
+        </header>
+
+        <form class="booking-form" id="booking-form" method="post" action="/modules/booking/preview" enctype="multipart/form-data">
+            <div class="booking-form-row booking-form-row-single">
+                <label class="field booking-field-supplier">
+                    <span>供应商</span>
+                    <select name="supplier" required>
+                        {% for supplier in suppliers %}
+                        <option value="{{ supplier }}" {% if supplier == selected_supplier %}selected{% endif %}>{{ supplier }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
+
+            <label class="booking-upload is-primary">
+                <input type="file" name="customer_eml" accept=".eml,message/rfc822" data-auto-preview>
+                <span class="booking-upload-icon" aria-hidden="true">✉</span>
+                <span class="booking-upload-body">
+                    <span class="booking-upload-title">选择客户原始邮件 .eml</span>
+                    <span class="booking-upload-sub">自动提取附件中的 CCIXLS / PACKADCXLS，选好后会立即提交预览</span>
+                    <span class="booking-upload-file" data-upload-file></span>
+                </span>
+                <span class="booking-upload-chip">主流程</span>
+            </label>
+
+            <div class="booking-form-row booking-form-row-fallback">
+                <label class="booking-upload is-fallback">
+                    <input type="file" name="source_file" accept=".xls,.xlsx">
+                    <span class="booking-upload-body">
+                        <span class="booking-upload-title">手动 CCIXLS（兜底）</span>
+                        <span class="booking-upload-sub">直接选择 *_CCIXLS.xls / INV-*.xlsx</span>
+                        <span class="booking-upload-file" data-upload-file></span>
+                    </span>
+                </label>
+
+                <label class="booking-upload is-fallback">
+                    <input type="file" name="packadc_file" accept=".xls,.xlsx">
+                    <span class="booking-upload-body">
+                        <span class="booking-upload-title">手动 PACKADCXLS（可选）</span>
+                        <span class="booking-upload-sub">客户拆两份时选择 *_PACKADCXLS.xls / PAK-*.xlsx</span>
+                        <span class="booking-upload-file" data-upload-file></span>
+                    </span>
+                </label>
+            </div>
+
+            <div class="booking-form-footer">
+                <span class="hint">选好客户 eml 会自动提交；其他场景请手动点击「预览」。</span>
+                <button class="primary-btn" type="submit">预览</button>
+            </div>
+        </form>
+    </section>
+
+    {% if preview %}
+    <section class="panel booking-preview">
+        <header class="booking-section-head">
+            <div>
+                <h2>② 预览结果</h2>
+                <p class="hint">
+                    detail <strong>{{ preview.detail_count }}</strong> 条，
+                    PACKADCXLS 原始 <strong>{{ preview.packadc_count }}</strong> 条，
+                    即将写入 <strong>{{ preview.rows|length }}</strong> 条。
+                </p>
+            </div>
+            {% if preview.can_generate %}
+            <form method="post" action="/modules/booking/generate/{{ preview.session_id }}" class="booking-generate-form">
+                <button class="primary-btn" type="submit">生成并下载 .xlsx</button>
+            </form>
+            {% endif %}
+        </header>
+
+        {% if preview.errors %}
+        <div class="booking-alert is-error">
+            <span class="booking-alert-label">错误</span>
+            <ul class="booking-alert-list">
+                {% for item in preview.errors %}
+                <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if preview.warnings %}
+        <div class="booking-alert is-warning">
+            <span class="booking-alert-label">警告</span>
+            <ul class="booking-alert-list">
+                {% for item in preview.warnings %}
+                <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="booking-meta-grid">
+            <div class="booking-meta-cell"><span>源文件</span><strong>{{ preview.source_filename }}</strong></div>
+            <div class="booking-meta-cell"><span>PACK 文件</span><strong>{{ preview.pack_filename or '未上传 / 未识别' }}</strong></div>
+            <div class="booking-meta-cell"><span>供应商</span><strong>{{ preview.supplier }}</strong></div>
+            <div class="booking-meta-cell"><span>MBLNO</span><strong>{{ preview.mawb_no or '未识别' }}</strong></div>
+            <div class="booking-meta-cell"><span>采购方</span><strong>{{ preview.purchaser or '未匹配' }}</strong></div>
+        </div>
+
+        {% if warehouse_mail_ready %}
+        <section class="booking-subpanel">
+            <div class="booking-section-head">
+                <div>
+                    <h3>③ 入仓邮件</h3>
+                    <p class="hint">上传这次做好的入仓文件后，系统会自动生成发仓库的 <code>.eml</code>：标题只替换 MAWB 和入仓号，并自动附上该入仓文件以及客户原始邮件里的全部附件。</p>
+                </div>
+            </div>
+            <form method="post" action="/modules/booking/warehouse-mail/{{ preview.session_id }}" enctype="multipart/form-data" class="booking-form">
+                <label class="booking-upload is-fallback">
+                    <input type="file" name="warehouse_file" accept=".pdf,.xls,.xlsx" required>
+                    <span class="booking-upload-body">
+                        <span class="booking-upload-title">上传做好的入仓文件</span>
+                        <span class="booking-upload-sub">文件名需包含类似 <code>SIL26040490</code> 的入仓号</span>
+                        <span class="booking-upload-file" data-upload-file></span>
+                    </span>
+                </label>
+                <div class="booking-form-footer">
+                    <span class="hint">当前会沿用固定的仓库邮件收件人、抄送和正文模板。</span>
+                    <button class="primary-btn" type="submit">生成入仓邮件 .eml</button>
+                </div>
+            </form>
+        </section>
+        {% endif %}
+
+        <div class="booking-table-wrap">
+            <table class="booking-table">
+                <thead>
+                <tr>
+                    <th>#</th>
+                    {% for column in preview.columns %}
+                    <th>{{ column }}</th>
+                    {% endfor %}
+                </tr>
+                </thead>
+                <tbody>
+                {% for row in preview.rows %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    {% for column in preview.columns %}
+                    <td>{{ row.get(column, '') }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+</main>
+
+<script>
+(function () {
+    var form = document.getElementById('booking-form');
+    if (!form) return;
+
+    var autoPreviewInput = form.querySelector('[data-auto-preview]');
+    if (autoPreviewInput) {
+        autoPreviewInput.addEventListener('change', function () {
+            if (autoPreviewInput.files && autoPreviewInput.files.length > 0) {
+                form.requestSubmit();
+            }
+        });
+    }
+
+    var fileInputs = document.querySelectorAll('.booking-upload input[type="file"]');
+    for (var i = 0; i < fileInputs.length; i++) {
+        (function (input) {
+            input.addEventListener('change', function () {
+                var target = input.closest('.booking-upload');
+                if (!target) return;
+                var fileCell = target.querySelector('[data-upload-file]');
+                if (input.files && input.files.length) {
+                    target.classList.add('has-files');
+                    if (fileCell) fileCell.textContent = '已选：' + input.files[0].name;
+                } else {
+                    target.classList.remove('has-files');
+                    if (fileCell) fileCell.textContent = '';
+                }
+            });
+        })(fileInputs[i]);
+    }
+})();
+</script>
+</body>
+</html>

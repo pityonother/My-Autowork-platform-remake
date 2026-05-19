@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生成派送邮件</title>
+    <link rel="stylesheet" href="/static/styles.css?v=dispatch-layout-wide-20260430">
+    <link rel="stylesheet" href="/static/modules/dispatch_mail/styles.css">
+</head>
+<body>
+<main class="shell wide dispatch-workbench dispatch-compose-shell">
+    <section class="topbar dispatch-topbar">
+        <div>
+            <p class="eyebrow">Dispatch Mail · Step 2</p>
+            <h1>填写邮件信息</h1>
+            <p class="lead">把实时预览放到最上面，先看整体结构；下面再填写全局信息、收件人和每票仓库资料。</p>
+        </div>
+        <div class="actions">
+            <a class="secondary-btn" href="/modules/dispatch-mail/preview/{{ session_id }}">返回预览</a>
+            <a class="secondary-btn" href="/">返回首页</a>
+        </div>
+    </section>
+
+    {% if error %}
+    <div class="ufo-alert" role="alert">
+        <span class="ufo-alert-label">生成失败</span>
+        <span class="ufo-alert-message">{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <section class="panel dispatch-preview-band">
+        <div class="dispatch-preview-head">
+            <div>
+                <p class="eyebrow">实时预览</p>
+                <h2>先看邮件结构，再往下填写</h2>
+                <p class="hint">这里展示主题和正文开头的实时变化，预览横向铺开，不再挤在右侧小栏里。</p>
+            </div>
+            <div class="dispatch-preview-metrics">
+                <span class="status-chip neutral">{{ result.tickets|length }} 票</span>
+                <span class="status-chip info">{{ result.tickets|sum(attribute="pallets") }} 板</span>
+            </div>
+        </div>
+        <div class="dispatch-preview-strip">
+            <article class="dispatch-preview-card">
+                <span class="dispatch-preview-label">邮件主题</span>
+                <p class="dispatch-preview-subject" id="dispatch-subject-preview">请先填写运输单号、日期和时间</p>
+            </article>
+            <article class="dispatch-preview-card dispatch-preview-body">
+                <span class="dispatch-preview-label">正文开头</span>
+                <p>Dear Kinki</p>
+                <p>请查收附件的交仓文件和装箱单，预计 <span data-preview="arrival_hour_full">17：00</span> 前到仓库，卸货车牌 <span data-preview="truck_plate">AAA</span>，到仓后卸货请注意，有破损请第一时间通知。</p>
+                <p class="hint">下方每票地址和注意事项会按当前顺序写入正文，并嵌入对应总表截图。</p>
+            </article>
+            <article class="dispatch-preview-card dispatch-preview-actions-card">
+                <span class="dispatch-preview-label">生成动作</span>
+                <button type="submit" form="dispatch-compose-form" class="primary-btn dispatch-submit dispatch-preview-submit">生成 .eml 并下载</button>
+                <p class="hint">收件人常用设置可以单独保存，不会打断你当前填写。</p>
+            </article>
+        </div>
+    </section>
+
+    <form action="/modules/dispatch-mail/generate/{{ session_id }}" method="post" class="dispatch-compose-stack" id="dispatch-compose-form">
+        <section class="panel dispatch-global-panel">
+            <header class="dispatch-section-head dispatch-section-head-spacious">
+                <div>
+                    <p class="eyebrow">全局信息</p>
+                    <h2>大号填写区</h2>
+                    <p class="lead">这部分单独放大铺宽，不再受旧的双栏框架限制，方便你先把整封邮件的关键参数一次看清。</p>
+                </div>
+                <span class="status-chip info">全局填写</span>
+            </header>
+
+            <div class="dispatch-global-grid">
+                <label class="field dispatch-core-field">
+                    <span>运输单号</span>
+                    <input type="text" name="tracking_no" placeholder="03FlEXH26040006" required>
+                </label>
+                <label class="field dispatch-core-field">
+                    <span>预计到仓日期</span>
+                    <input type="text" name="arrival_day" placeholder="15" required>
+                </label>
+                <label class="field dispatch-core-field">
+                    <span>预计到仓时间</span>
+                    <input type="text" name="arrival_hour" placeholder="17" required>
+                </label>
+                <label class="field dispatch-core-field">
+                    <span>卸货车牌</span>
+                    <input type="text" name="truck_plate" placeholder="AAA" required>
+                </label>
+            </div>
+
+            <section class="dispatch-mail-settings">
+                <div class="dispatch-mail-settings-head">
+                    <div>
+                        <h3>常用收件人</h3>
+                        <p class="hint">To / Cc / From 可以单独保存，下次进入这页时会自动带出。</p>
+                    </div>
+                    <div class="dispatch-settings-actions">
+                        <button type="button" class="secondary-btn" id="dispatch-save-settings">保存常用收件人</button>
+                        <span class="dispatch-settings-status" id="dispatch-settings-status" aria-live="polite"></span>
+                    </div>
+                </div>
+                <div class="dispatch-recipient-grid">
+                    <label class="field dispatch-mail-field dispatch-mail-field-full">
+                        <span>收件人 To</span>
+                        <textarea name="to_email" rows="3" placeholder="多个邮箱可直接粘贴，建议一行一个或用分号分隔">{{ settings.to_email }}</textarea>
+                    </label>
+                    <label class="field dispatch-mail-field dispatch-mail-field-full">
+                        <span>抄送 Cc</span>
+                        <textarea name="cc_email" rows="3" placeholder="固定抄送人也可以保存在这里">{{ settings.cc_email }}</textarea>
+                    </label>
+                    <label class="field dispatch-mail-field">
+                        <span>发件人 From</span>
+                        <input type="text" name="from_email" value="{{ settings.from_email }}" placeholder="yourname@example.com">
+                    </label>
+                </div>
+            </section>
+        </section>
+
+        <section class="panel dispatch-ticket-stage">
+            <header class="dispatch-section-head dispatch-section-head-spacious">
+                <div>
+                    <p class="eyebrow">逐票填写</p>
+                    <h2>仓库地址与注意事项</h2>
+                    <p class="hint">每一票总表截图、文件引用和仓库信息集中在同一张卡片里。</p>
+                </div>
+                <span class="status-chip neutral">{{ result.tickets|length }} 票待确认</span>
+            </header>
+
+            <div class="dispatch-ticket-forms">
+                {% for ticket in result.tickets %}
+                <article class="dispatch-ticket-form">
+                    <header class="dispatch-ticket-head">
+                        <div>
+                            <strong>{{ ticket.index }}. {{ ticket.tan_no }} · {{ ticket.pallets }} 板</strong>
+                            <p class="cell-subtle">{{ ticket.customer_pos|join(', ') }}</p>
+                            {% if ticket.remark %}
+                            <p class="dispatch-ticket-remark">{{ ticket.remark }}</p>
+                            {% endif %}
+                        </div>
+                        <span class="status-chip success">截图已就绪</span>
+                    </header>
+
+                    <div class="dispatch-ticket-layout">
+                        {% if ticket.table_image_path %}
+                        <div class="dispatch-ticket-visual">
+                            <div class="dispatch-compose-img-frame">
+                                <img class="dispatch-compose-img" src="/modules/dispatch-mail/image/{{ session_id }}/{{ ticket.index }}" alt="{{ ticket.tan_no }}">
+                            </div>
+                            <p class="hint">总表截图包含序号、Tan#、数量和备注。</p>
+                        </div>
+                        {% endif %}
+
+                        <div class="dispatch-attachment-reference">
+                            <div class="dispatch-attachment-reference-item">
+                                <span class="dispatch-attachment-reference-label">DQT 装箱单</span>
+                                <strong>{{ ticket.dqth.attachment.original_name if ticket.dqth else '当前未绑定' }}</strong>
+                                {% if ticket.dqth %}
+                                <div class="dispatch-source-actions">
+                                    <a class="secondary-link" href="/modules/dispatch-mail/source/{{ session_id }}/dqth/{{ ticket.dqth.preview_index }}" target="_blank">查看预览</a>
+                                    <a class="secondary-link" href="/modules/dispatch-mail/source-file/{{ session_id }}/dqth/{{ ticket.dqth.preview_index }}" target="_blank">打开原文件</a>
+                                </div>
+                                {% endif %}
+                            </div>
+                            <div class="dispatch-attachment-reference-item">
+                                <span class="dispatch-attachment-reference-label">交仓文件</span>
+                                <strong>{{ ticket.so.attachment.original_name if ticket.so else '当前未绑定' }}</strong>
+                                {% if ticket.so %}
+                                <div class="dispatch-source-actions">
+                                    <a class="secondary-link" href="/modules/dispatch-mail/source/{{ session_id }}/so/{{ ticket.so.preview_index }}" target="_blank">查看预览</a>
+                                    <a class="secondary-link" href="/modules/dispatch-mail/source-file/{{ session_id }}/so/{{ ticket.so.preview_index }}" target="_blank">打开原文件</a>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="dispatch-ticket-fields">
+                            <div class="dispatch-ticket-grid">
+                                <label class="field dispatch-warehouse-field">
+                                    <span>仓库代码</span>
+                                    <input type="text" name="warehouse_code_{{ ticket.index }}" value="{{ ticket.warehouse_code }}" placeholder="例如 G / K+N / 新兴">
+                                </label>
+                                <label class="field dispatch-field-full">
+                                    <span>交仓地址</span>
+                                    <textarea name="address_{{ ticket.index }}" rows="4" placeholder="填写这一票的交仓地址">{{ ticket.address }}</textarea>
+                                </label>
+                                <label class="field dispatch-field-full">
+                                    <span>注意事项</span>
+                                    <textarea name="note_{{ ticket.index }}" rows="3">{{ ticket.note }}</textarea>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+
+        <div class="dispatch-bottom-actions">
+            <div class="dispatch-bottom-copy">
+                <strong>准备生成邮件</strong>
+                <p class="hint">确认上方全局信息、收件人和逐票仓库信息后，再导出最终 `.eml`。</p>
+            </div>
+            <div class="dispatch-bottom-buttons">
+                <a class="secondary-btn" href="/modules/dispatch-mail/preview/{{ session_id }}">返回预览</a>
+                <button type="submit" class="primary-btn dispatch-submit">生成 .eml 并下载</button>
+            </div>
+        </div>
+    </form>
+</main>
+
+<script>
+(function () {
+    var form = document.getElementById('dispatch-compose-form');
+    var subject = document.getElementById('dispatch-subject-preview');
+    var saveButton = document.getElementById('dispatch-save-settings');
+    var saveStatus = document.getElementById('dispatch-settings-status');
+    if (!form || !subject) return;
+
+    function val(name) {
+        var el = form.querySelector('[name="' + name + '"]');
+        return el ? el.value.trim() : '';
+    }
+
+    function formatHour(value) {
+        if (!value) return '17：00';
+        if (value.indexOf(':') !== -1 || value.indexOf('：') !== -1 || value.indexOf('点') !== -1) {
+            return value;
+        }
+        return value + '：00';
+    }
+
+    function updatePreview() {
+        var tracking = val('tracking_no') || '运输单号';
+        var day = val('arrival_day') || 'Y';
+        var hour = val('arrival_hour') || 'N';
+        var plate = val('truck_plate') || 'AAA';
+        var total = '{{ result.tickets|sum(attribute="pallets") }}';
+        var previewHour = formatHour(hour);
+
+        subject.textContent = tracking + ' 伟创力出口' + total + '板，预计' + day + '号' + hour + '点前到倉庫 貨物到倉庫有扁箱請第一時間拍照通知，謝謝';
+
+        document.querySelectorAll('[data-preview="arrival_hour_full"]').forEach(function (el) {
+            el.textContent = previewHour;
+        });
+        document.querySelectorAll('[data-preview="truck_plate"]').forEach(function (el) {
+            el.textContent = plate;
+        });
+    }
+
+    function setSaveStatus(text, tone) {
+        if (!saveStatus) return;
+        saveStatus.textContent = text;
+        saveStatus.className = 'dispatch-settings-status' + (tone ? ' is-' + tone : '');
+    }
+
+    if (saveButton) {
+        saveButton.addEventListener('click', async function () {
+            saveButton.disabled = true;
+            setSaveStatus('保存中...', '');
+            try {
+                var payload = new FormData();
+                payload.append('to_email', val('to_email'));
+                payload.append('cc_email', val('cc_email'));
+                payload.append('from_email', val('from_email'));
+
+                var response = await fetch('/modules/dispatch-mail/settings', {
+                    method: 'POST',
+                    body: payload
+                });
+                if (!response.ok) {
+                    throw new Error('保存失败');
+                }
+                var data = await response.json();
+                setSaveStatus(data.message || '已保存', 'success');
+            } catch (error) {
+                setSaveStatus('保存失败，请重试', 'error');
+            } finally {
+                saveButton.disabled = false;
+            }
+        });
+    }
+
+    form.addEventListener('input', updatePreview);
+    updatePreview();
+})();
+</script>
+</body>
+</html>

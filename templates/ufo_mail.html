@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UFO 邮件生成器</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/modules/ufo_mail/styles.css">
+</head>
+<body>
+<main class="shell wide ufo-workbench">
+    <section class="topbar ufo-topbar">
+        <div>
+            <p class="eyebrow">UFO Mail · 异常反馈</p>
+            <h1>UFO 邮件生成器</h1>
+            <p class="lead">上传 UFO 文件和收货图片，勾选问题库里的异常项，一键生成英文 <code>.eml</code> 邮件草稿。</p>
+        </div>
+        <div class="actions">
+            <a class="secondary-btn" href="/">返回首页</a>
+            <a class="secondary-btn" href="#issue-library">管理问题库</a>
+        </div>
+    </section>
+
+    {% if error %}
+    <div class="ufo-alert" role="alert">
+        <span class="ufo-alert-label">未能生成邮件</span>
+        <span class="ufo-alert-message">{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <section class="panel ufo-primary" id="generate">
+        <header class="ufo-section-head">
+            <div>
+                <h2>生成反馈邮件</h2>
+                <p class="hint">UFO 号码会优先从附件文件名识别（如 <code>UFO26042101</code>），识别不到可手填。</p>
+            </div>
+            <span class="status-chip info">主流程</span>
+        </header>
+
+        <form action="/modules/ufo-mail/generate" method="post" enctype="multipart/form-data" class="ufo-form" id="ufo-generate-form">
+            <div class="ufo-subsection">
+                <div class="ufo-subsection-head">
+                    <h3>① 邮件信息</h3>
+                    <span class="ufo-muted">To / Cc / From 会记住上次保存或生成时填写的内容。</span>
+                </div>
+                <div class="ufo-field-grid four">
+                    <label class="field">
+                        <span>UFO 号码</span>
+                        <input type="text" name="ufo_no" placeholder="UFO26042101" autocomplete="off">
+                    </label>
+                    <label class="field">
+                        <span>收件人 To</span>
+                        <input type="text" name="to_email" value="{{ mail_settings.to_email }}" placeholder="customer@example.com" autocomplete="off">
+                    </label>
+                    <label class="field">
+                        <span>抄送 Cc</span>
+                        <input type="text" name="cc_email" value="{{ mail_settings.cc_email }}" placeholder="多个邮箱用逗号分隔" autocomplete="off">
+                    </label>
+                    <label class="field">
+                        <span>发件人 From</span>
+                        <input type="text" name="from_email" value="{{ mail_settings.from_email }}" placeholder="yourname@example.com" autocomplete="off">
+                    </label>
+                </div>
+                <div class="ufo-memory-actions">
+                    <button type="submit" formaction="/modules/ufo-mail/settings" formmethod="post" formenctype="application/x-www-form-urlencoded" class="secondary-btn small-btn">
+                        保存常用收件信息
+                    </button>
+                    <span class="ufo-muted">保存后，下次打开此页面会自动带出这些地址。</span>
+                </div>
+            </div>
+
+            <div class="ufo-subsection">
+                <div class="ufo-subsection-head">
+                    <h3>② 附件上传</h3>
+                    <span class="ufo-muted" id="ufo-file-summary">尚未选择文件</span>
+                </div>
+                <label class="ufo-dropzone" id="ufo-dropzone">
+                    <input type="file" name="attachments" id="ufo-attachments" multiple required>
+                    <span class="ufo-dropzone-icon" aria-hidden="true">⬆</span>
+                    <strong class="ufo-dropzone-title">点击选择 UFO 文件 / 收货图片</strong>
+                    <span class="ufo-dropzone-sub">支持 PDF、JPG、PNG、XLSX 等，可一次选择多个文件。</span>
+                </label>
+                <ul class="ufo-file-list" id="ufo-file-list" hidden></ul>
+            </div>
+
+            <div class="ufo-subsection">
+                <div class="ufo-subsection-head">
+                    <h3>③ 勾选反馈问题</h3>
+                    <span class="ufo-count" id="ufo-issue-count" data-count="0">已勾选 0 项</span>
+                </div>
+                {% if active_issues %}
+                <div class="ufo-issue-grid">
+                    {% for issue in active_issues %}
+                    <label class="ufo-issue-tile">
+                        <input type="checkbox" name="issue_ids" value="{{ issue.id }}">
+                        <span class="ufo-issue-indicator" aria-hidden="true"></span>
+                        <span class="ufo-issue-body">
+                            <span class="ufo-issue-cn">{{ issue.short_cn }}</span>
+                            <span class="ufo-issue-en">{{ issue.short_en }}</span>
+                            <span class="ufo-issue-detail">{{ issue.detail_en }}</span>
+                        </span>
+                    </label>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="empty">问题库当前没有启用中的问题。请先到下方 <a href="#issue-library">问题反馈库</a> 新增或启用问题。</p>
+                {% endif %}
+            </div>
+
+            <div class="ufo-form-footer">
+                <p class="hint">点击生成后，浏览器会直接下载 <code>.eml</code> 文件，用 Outlook 等客户端打开即可。</p>
+                <button type="submit" class="primary-btn ufo-submit">生成 eml 邮件</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="ufo-admin-grid">
+        <article class="panel ufo-create-issue">
+            <header class="ufo-section-head">
+                <div>
+                    <h2>新增问题模板</h2>
+                    <p class="hint">先加入问题库，再回到上方勾选使用。</p>
+                </div>
+                <span class="status-chip warn">入库</span>
+            </header>
+            <form action="/modules/ufo-mail/issues" method="post" class="stack-form">
+                <label class="field">
+                    <span>中文简述</span>
+                    <input type="text" name="short_cn" placeholder="例如：外箱没有标签" required>
+                </label>
+                <label class="field">
+                    <span>英文简述（用于邮件主题）</span>
+                    <input type="text" name="short_en" placeholder="Carton without label" required>
+                </label>
+                <label class="field">
+                    <span>英文具体描述（用于正文）</span>
+                    <textarea name="detail_en" rows="5" required placeholder="The carton was received without any external label. Please help confirm ..."></textarea>
+                </label>
+                <div class="dialog-actions">
+                    <button type="submit" class="secondary-btn">加入问题库</button>
+                </div>
+            </form>
+        </article>
+
+        <article class="panel ufo-signature-card" id="signature-settings">
+            <header class="ufo-section-head">
+                <div>
+                    <h2>签名模板</h2>
+                    <p class="hint">可从现有 eml 导入签名，支持 HTML 艺术字和内嵌图片。</p>
+                </div>
+                <span class="status-chip {% if signature_settings.enabled and signature_settings.html %}success{% else %}neutral{% endif %}">
+                    {% if signature_settings.enabled and signature_settings.html %}已启用{% else %}未启用{% endif %}
+                </span>
+            </header>
+
+            <form action="/modules/ufo-mail/signature/import" method="post" enctype="multipart/form-data" class="stack-form">
+                <label class="field">
+                    <span>带签名的 eml 文件</span>
+                    <input type="file" name="signature_file" accept=".eml" required>
+                </label>
+                <label class="field">
+                    <span>签名开始标记</span>
+                    <input type="text" name="marker" value="Thanks &amp; Best regards" placeholder="Thanks &amp; Best regards">
+                </label>
+                <div class="dialog-actions">
+                    <button type="submit" class="secondary-btn">导入签名</button>
+                </div>
+            </form>
+
+            <div class="ufo-signature-status">
+                {% if signature_settings.html %}
+                <div class="ufo-muted">来源：{{ signature_settings.source_name or "未记录" }}</div>
+                <div class="ufo-muted">内嵌图片：{{ signature_settings.assets|length }} 张</div>
+                <div class="ufo-muted">更新时间：{{ signature_settings.updated_at or "-" }}</div>
+                <form action="/modules/ufo-mail/signature/enabled" method="post" class="ufo-toggle-form">
+                    <input type="hidden" name="enabled" value="{{ 'false' if signature_settings.enabled else 'true' }}">
+                    <button type="submit" class="ufo-toggle-btn {% if signature_settings.enabled %}is-danger{% else %}is-revive{% endif %}">
+                        {% if signature_settings.enabled %}暂停使用签名{% else %}启用签名{% endif %}
+                    </button>
+                </form>
+                {% else %}
+                <p class="hint">尚未导入签名。导入后，之后生成的 UFO 邮件会自动附带该签名。</p>
+                {% endif %}
+            </div>
+        </article>
+
+        <article class="panel ufo-tips">
+            <header class="ufo-section-head">
+                <div>
+                    <h2>使用小贴士</h2>
+                    <p class="hint">减少误操作、提高生成效率的几个建议。</p>
+                </div>
+            </header>
+            <ul class="ufo-tip-list">
+                <li><strong>附件命名含 UFO 号：</strong>例如 <code>UFO26042101_photo.jpg</code>，系统会自动识别，无需手填。</li>
+                <li><strong>可勾选多项问题：</strong>生成的邮件会按勾选顺序依次列出具体描述。</li>
+                <li><strong>常用问题建议入库：</strong>临时性反馈也可以先入库，下次直接复用。</li>
+                <li><strong>停用≠删除：</strong>停用的问题仍在问题库中，随时可重新启用。</li>
+            </ul>
+        </article>
+    </section>
+
+    <section class="panel ufo-library" id="issue-library">
+        <header class="ufo-section-head">
+            <div>
+                <h2>问题反馈库</h2>
+                <p class="hint">可直接在卡片里修改内容并保存。已停用的问题不会出现在生成邮件的勾选区。</p>
+            </div>
+            <div class="ufo-library-stats">
+                <span class="status-chip success">启用 {{ active_issues|length }}</span>
+                <span class="status-chip neutral">总计 {{ issues|length }}</span>
+            </div>
+        </header>
+
+        {% if issues %}
+        <ul class="ufo-library-list">
+            {% for issue in issues %}
+            <li class="ufo-library-item {% if not issue.is_active %}is-inactive{% endif %}">
+                <details class="ufo-library-details">
+                    <summary class="ufo-library-summary">
+                        <span class="ufo-library-summary-main">
+                            <span class="status-chip {% if issue.is_active %}success{% else %}neutral{% endif %}">
+                                {% if issue.is_active %}启用中{% else %}已停用{% endif %}
+                            </span>
+                            <span class="ufo-library-summary-title">{{ issue.short_cn }}</span>
+                        </span>
+                        <span class="ufo-library-summary-meta">
+                            <span class="cell-subtle">ID {{ issue.id }}</span>
+                            <span class="ufo-library-toggle" aria-hidden="true">
+                                <span class="ufo-library-toggle-text" data-open="收起" data-closed="展开编辑"></span>
+                                <span class="ufo-library-toggle-icon"></span>
+                            </span>
+                        </span>
+                    </summary>
+
+                    <div class="ufo-library-body">
+                        <form action="/modules/ufo-mail/issues/{{ issue.id }}/update" method="post" class="stack-form">
+                            <label class="field">
+                                <span>中文简述</span>
+                                <input type="text" name="short_cn" value="{{ issue.short_cn }}" required>
+                            </label>
+                            <label class="field">
+                                <span>英文简述</span>
+                                <input type="text" name="short_en" value="{{ issue.short_en }}" required>
+                            </label>
+                            <label class="field">
+                                <span>英文具体描述</span>
+                                <textarea name="detail_en" rows="4" required>{{ issue.detail_en }}</textarea>
+                            </label>
+                            <div class="ufo-card-actions">
+                                <button type="submit" class="secondary-btn small-btn">保存修改</button>
+                            </div>
+                        </form>
+                        <form action="/modules/ufo-mail/issues/{{ issue.id }}/active" method="post" class="ufo-toggle-form">
+                            <input type="hidden" name="is_active" value="{{ 'false' if issue.is_active else 'true' }}">
+                            <button type="submit" class="ufo-toggle-btn {% if issue.is_active %}is-danger{% else %}is-revive{% endif %}">
+                                {% if issue.is_active %}停用此问题{% else %}重新启用{% endif %}
+                            </button>
+                        </form>
+                    </div>
+                </details>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="empty">问题库为空，请在上方 <a href="#">新增问题模板</a> 添加第一条。</p>
+        {% endif %}
+    </section>
+</main>
+
+<script>
+(function () {
+    var form = document.getElementById('ufo-generate-form');
+    if (!form) return;
+
+    var countEl = document.getElementById('ufo-issue-count');
+    var fileInput = document.getElementById('ufo-attachments');
+    var fileList = document.getElementById('ufo-file-list');
+    var fileSummary = document.getElementById('ufo-file-summary');
+    var dropzone = document.getElementById('ufo-dropzone');
+
+    function updateIssueCount() {
+        if (!countEl) return;
+        var boxes = form.querySelectorAll('input[name="issue_ids"]');
+        var checked = 0;
+        for (var i = 0; i < boxes.length; i++) {
+            if (boxes[i].checked) checked++;
+            var tile = boxes[i].closest('.ufo-issue-tile');
+            if (tile) tile.classList.toggle('is-checked', boxes[i].checked);
+        }
+        countEl.textContent = '已勾选 ' + checked + ' 项';
+        countEl.dataset.count = String(checked);
+    }
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+        return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    }
+
+    function renderFiles() {
+        if (!fileInput || !fileList) return;
+        var files = fileInput.files ? Array.prototype.slice.call(fileInput.files) : [];
+        fileList.innerHTML = '';
+        if (!files.length) {
+            fileList.hidden = true;
+            if (fileSummary) fileSummary.textContent = '尚未选择文件';
+            if (dropzone) dropzone.classList.remove('has-files');
+            return;
+        }
+        fileList.hidden = false;
+        for (var i = 0; i < files.length; i++) {
+            var li = document.createElement('li');
+            var name = document.createElement('span');
+            name.className = 'ufo-file-name';
+            name.textContent = files[i].name;
+            var size = document.createElement('span');
+            size.className = 'ufo-file-size';
+            size.textContent = formatSize(files[i].size);
+            li.appendChild(name);
+            li.appendChild(size);
+            fileList.appendChild(li);
+        }
+        if (fileSummary) fileSummary.textContent = '已选 ' + files.length + ' 个文件';
+        if (dropzone) dropzone.classList.add('has-files');
+    }
+
+    form.addEventListener('change', function (e) {
+        if (e.target && e.target.name === 'issue_ids') updateIssueCount();
+        if (e.target === fileInput) renderFiles();
+    });
+
+    updateIssueCount();
+    renderFiles();
+})();
+</script>
+</body>
+</html>

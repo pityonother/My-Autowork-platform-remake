@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>香港出口清关</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <main class="shell wide">
+        <section class="topbar">
+            <div>
+                <p class="eyebrow">香港出口清关</p>
+                <h1>批次导入与历史清关管理</h1>
+                <p class="lead">导入时需要填写车单号、跟单员、日期、当日车次。导入后的记录会写入历史数据库，并支持待清关优先级排序与条件筛查。</p>
+            </div>
+            <div class="actions">
+                <button type="button" class="primary-btn" data-open-dialog="export-import-dialog">导入新批次</button>
+                <a class="secondary-btn" href="/modules/export-customs/download/pending">导出待清关表</a>
+                <a class="secondary-btn" href="/modules/export-customs/download/cleared">导出已清关表</a>
+                <a class="secondary-btn" href="/">返回首页</a>
+            </div>
+        </section>
+
+        {% if imported_batch %}
+        <section class="panel import-feedback-bar">
+            <p class="import-success inline">已成功导入批次 <strong>{{ imported_batch }}</strong>。</p>
+        </section>
+        {% endif %}
+
+        <section class="grid priority-layout">
+            <article class="panel primary-panel">
+                <div class="section-head">
+                    <div>
+                        <h2>待办筛选</h2>
+                        <p>优先把常用查询条件放前面，方便你先筛再看结果。支持状态、日期范围、Tan# 关键字和排序方式。</p>
+                    </div>
+                </div>
+                <form class="filter-form" method="get" action="/modules/export-customs">
+                    <label class="field">
+                        <span>清关状态</span>
+                        <select name="clearance_status">
+                            <option value="pending" {% if clearance_status == 'pending' %}selected{% endif %}>待清关</option>
+                            <option value="cleared" {% if clearance_status == 'cleared' %}selected{% endif %}>已清关</option>
+                            <option value="all" {% if clearance_status == 'all' %}selected{% endif %}>全部</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>排序方式</span>
+                        <select name="sort_by">
+                            <option value="urgency" {% if sort_by == 'urgency' %}selected{% endif %}>按紧急程度</option>
+                            <option value="shipment_date" {% if sort_by == 'shipment_date' %}selected{% endif %}>按出货日期</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>出货日期从</span>
+                        <input type="date" name="shipment_date_from" value="{{ shipment_date_from }}">
+                    </label>
+                    <label class="field">
+                        <span>出货日期到</span>
+                        <input type="date" name="shipment_date_to" value="{{ shipment_date_to }}">
+                    </label>
+                    <label class="field">
+                        <span>Tan# 筛查</span>
+                        <input type="text" name="tan_number" value="{{ tan_number }}" placeholder="支持部分匹配">
+                    </label>
+                    <button type="submit" class="secondary-btn">应用筛选</button>
+                </form>
+            </article>
+
+            <article class="panel secondary-panel">
+                <div class="section-head">
+                    <div>
+                        <h2>历史批次</h2>
+                        <p>批次记录继续保留在这里，便于回看导入来源，但优先级低于待办筛选。</p>
+                    </div>
+                </div>
+                <div class="table-wrap compact">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>批次号</th>
+                                <th>车单号</th>
+                                <th>跟单员</th>
+                                <th>日期</th>
+                                <th>车次</th>
+                                <th>导入记录数</th>
+                                <th>待清关</th>
+                                <th>已清关</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for batch in batches %}
+                            <tr>
+                                <td><a href="/modules/export-customs/batches/{{ batch.id }}">{{ batch.batch_code }}</a></td>
+                                <td>{{ batch.manifest_code }}</td>
+                                <td>{{ batch.tracker }}</td>
+                                <td>{{ batch.shipment_date }}</td>
+                                <td>{{ batch.trip_sequence }}</td>
+                                <td>{{ batch.record_count }}</td>
+                                <td>{{ batch.pending_count or 0 }}</td>
+                                <td>{{ batch.cleared_count or 0 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <div>
+                    <h2>记录列表</h2>
+                    <p>红色最急，橙色次之。这里支持直接标记已清关，或将已清关记录退回待清关。</p>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>优先级</th>
+                            <th>出货日期</th>
+                            <th>TAN#</th>
+                            <th>车单号</th>
+                            <th>跟单员</th>
+                            <th>目的地</th>
+                            <th>板数</th>
+                            <th>箱数</th>
+                            <th>货值</th>
+                            <th>毛重</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in records %}
+                        <tr class="urgency-{{ row.urgency_color }}">
+                            <td>{{ row.urgency_label }}</td>
+                            <td>{{ row.shipment_date }}</td>
+                            <td>{{ row.tan_number }}</td>
+                            <td>{{ row.manifest_code }}</td>
+                            <td>{{ row.tracker }}</td>
+                            <td>{{ row.destination }}</td>
+                            <td>{{ row.pallet_count }}</td>
+                            <td>{{ row.carton_count }}</td>
+                            <td>{{ row.total_value_usd }}</td>
+                            <td>{{ row.gross_weight_kg }}</td>
+                            <td>{{ row.clearance_status }}</td>
+                            <td>
+                                <form class="inline-form" method="post" action="/modules/export-customs/records/{{ row.id }}/status">
+                                    {% if row.clearance_status == 'pending' %}
+                                    <input type="hidden" name="status" value="cleared">
+                                    <button type="submit" class="primary-btn small-btn">标记已清关</button>
+                                    {% else %}
+                                    <input type="hidden" name="status" value="pending">
+                                    <button type="submit" class="secondary-btn small-btn">退回待清关</button>
+                                    {% endif %}
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <dialog id="export-import-dialog" class="app-dialog">
+        <form method="dialog" class="dialog-scrim">
+            <button class="dialog-backdrop" aria-label="关闭导入弹窗"></button>
+        </form>
+        <div class="dialog-card">
+            <div class="dialog-head">
+                <div class="dialog-title-block">
+                    <p class="eyebrow">香港出口清关</p>
+                    <h2>导入新批次</h2>
+                    <p class="lead">填写本次车单和文件后，系统会把解析结果写入历史数据库。原始文件不会作为页面内容长期展示。</p>
+                </div>
+                <form method="dialog" class="dialog-close-form">
+                    <button type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
+                </form>
+            </div>
+            <div class="dialog-note-row">
+                <span class="status-chip neutral">支持 `.xls` / `.xlsx`</span>
+                <span class="status-chip info">会记住最近一次填写的常用字段</span>
+            </div>
+            <form action="/modules/export-customs/import" method="post" enctype="multipart/form-data" class="upload-form dialog-form" data-export-import-form>
+                <label class="field">
+                    <span>车单号</span>
+                    <input type="text" name="manifest_code" placeholder="例如 Beryl_20260401_01" required data-remember-field="manifest_code">
+                </label>
+                <label class="field">
+                    <span>跟单员</span>
+                    <input type="text" name="tracker" placeholder="例如 Beryl" required data-remember-field="tracker">
+                </label>
+                <label class="field">
+                    <span>日期</span>
+                    <input type="date" name="shipment_date" required data-remember-field="shipment_date">
+                </label>
+                <label class="field">
+                    <span>当日车次</span>
+                    <input type="text" name="trip_sequence" inputmode="numeric" placeholder="例如 1" required data-remember-field="trip_sequence">
+                </label>
+                <label class="field field-wide">
+                    <span>Flex 的 Tan# 总表（数据来源）</span>
+                    <input type="file" name="source_files" accept=".xls,.xlsx" multiple required>
+                </label>
+                <div class="dialog-actions">
+                    <button type="button" class="secondary-btn" data-close-dialog="export-import-dialog">取消</button>
+                    <button type="submit" class="primary-btn">导入出口清关批次</button>
+                </div>
+            </form>
+        </div>
+    </dialog>
+
+    <script>
+        (() => {
+            const openButtons = document.querySelectorAll("[data-open-dialog]");
+            const closeButtons = document.querySelectorAll("[data-close-dialog]");
+            const importForm = document.querySelector("[data-export-import-form]");
+            const storageKey = "export-customs-import-draft";
+
+            if (importForm) {
+                const rememberedFields = importForm.querySelectorAll("[data-remember-field]");
+                let stored = {};
+                try {
+                    stored = JSON.parse(localStorage.getItem(storageKey) || "{}");
+                } catch (_) {
+                    stored = {};
+                }
+
+                for (const field of rememberedFields) {
+                    const key = field.getAttribute("data-remember-field");
+                    if (key && stored[key] && !field.value) {
+                        field.value = stored[key];
+                    }
+                }
+
+                importForm.addEventListener("input", () => {
+                    const nextStored = {};
+                    for (const field of rememberedFields) {
+                        const key = field.getAttribute("data-remember-field");
+                        if (key) {
+                            nextStored[key] = field.value;
+                        }
+                    }
+                    localStorage.setItem(storageKey, JSON.stringify(nextStored));
+                });
+            }
+
+            for (const button of openButtons) {
+                button.addEventListener("click", () => {
+                    const dialogId = button.getAttribute("data-open-dialog");
+                    const dialog = dialogId ? document.getElementById(dialogId) : null;
+                    if (dialog && typeof dialog.showModal === "function") {
+                        dialog.showModal();
+                    }
+                });
+            }
+
+            for (const button of closeButtons) {
+                button.addEventListener("click", () => {
+                    const dialogId = button.getAttribute("data-close-dialog");
+                    const dialog = dialogId ? document.getElementById(dialogId) : null;
+                    if (dialog && typeof dialog.close === "function") {
+                        dialog.close();
+                    }
+                });
+            }
+        })();
+    </script>
+</body>
+</html>

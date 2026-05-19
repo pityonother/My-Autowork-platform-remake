@@ -1,0 +1,1 @@
+"""Dispatch mail parser adapters."""

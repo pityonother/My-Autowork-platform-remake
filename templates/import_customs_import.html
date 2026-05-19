@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>香港进口清关</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <main class="shell">
+        <section class="topbar">
+            <div>
+                <p class="eyebrow">香港进口清关</p>
+                <h1>上传进口清关资料</h1>
+                <p class="lead">需要的文件：空白 bill 账单、运输单总表、Flex 的 Tan# 总表（数据来源）。</p>
+            </div>
+            <div class="actions">
+                <a class="secondary-btn" href="/">返回首页</a>
+            </div>
+        </section>
+
+        <section class="panel upload-panel">
+            <form action="/process/customs" method="post" enctype="multipart/form-data" class="upload-form">
+                <label class="field">
+                    <span>运输单总表</span>
+                    <input type="file" name="order_management_file" accept=".xls,.xlsx" required>
+                </label>
+                <label class="field">
+                    <span>空白 bill 账单</span>
+                    <input type="file" name="customs_bill_file" accept=".xls,.xlsx">
+                </label>
+                <label class="field">
+                    <span>Flex 的 Tan# 总表（数据来源）</span>
+                    <input type="file" name="source_files" accept=".xls,.xlsx" multiple required>
+                </label>
+                <button type="submit" class="primary-btn">生成进口清关预览</button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

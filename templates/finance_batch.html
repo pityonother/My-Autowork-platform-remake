@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>财务批次详情</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/modules/finance/styles.css">
+</head>
+<body>
+    <main class="shell wide">
+        <section class="topbar">
+            <div>
+                <p class="eyebrow">财务批次</p>
+                <h1>{{ batch.batch_code }}</h1>
+                <p class="lead">源文件：{{ batch.source_file_name }}，导入记录数：{{ batch.record_count }}，导入时间：{{ batch.created_at }}</p>
+            </div>
+            <div class="actions">
+                <a class="secondary-btn" href="/modules/finance-records">返回财务记录模块</a>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>源行号</th>
+                            <th>日期</th>
+                            <th>支出名称</th>
+                            <th>分类</th>
+                            <th>币种</th>
+                            <th>RMB金额</th>
+                            <th>HKD金额</th>
+                            <th>SO/客户</th>
+                            <th>备注</th>
+                            <th>任务状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in records %}
+                        <tr>
+                            <td>{{ row.source_row_no }}</td>
+                            <td>{{ row.reimbursement_date }}</td>
+                            <td>{{ row.expense_name }}</td>
+                            <td>{{ row.category_label }}</td>
+                            <td>{{ row.currency }}</td>
+                            <td>{{ row.amount_rmb }}</td>
+                            <td>{{ row.amount_hkd }}</td>
+                            <td>{{ row.so_customer_raw }}</td>
+                            <td>{{ row.remark }}</td>
+                            <td>{{ row.task_status_label }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

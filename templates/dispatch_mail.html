@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>派送邮件生成器</title>
+    <link rel="stylesheet" href="/static/styles.css?v=dispatch-layout-wide-20260430">
+    <link rel="stylesheet" href="/static/modules/dispatch_mail/styles.css">
+</head>
+<body>
+<main class="shell wide dispatch-workbench">
+    <section class="topbar dispatch-topbar">
+        <div>
+            <p class="eyebrow">Dispatch Mail</p>
+            <h1>派送邮件生成器</h1>
+            <p class="lead">上传客户原始 eml，自动提取附件、按 Tan# 拆票、配对 DQT 和 SO 文件，并生成发给仓库的派送邮件。</p>
+        </div>
+        <div class="actions">
+            <a class="secondary-btn" href="/">返回首页</a>
+        </div>
+    </section>
+
+    {% if error %}
+    <div class="ufo-alert" role="alert">
+        <span class="ufo-alert-label">解析失败</span>
+        <span class="ufo-alert-message">{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <section class="panel dispatch-primary">
+        <header class="dispatch-section-head">
+            <div>
+                <h2>Step 1 · 上传客户邮件</h2>
+                <p class="hint">请选择客户发来的原始 `.eml` 邮件。系统会读取普通附件，忽略邮件正文里的签名图片。</p>
+            </div>
+            <span class="status-chip info">解析 + 改名预览</span>
+        </header>
+        <form action="/modules/dispatch-mail/parse" method="post" enctype="multipart/form-data" class="dispatch-upload-form">
+            <label class="dispatch-dropzone">
+                <input type="file" name="customer_eml" accept=".eml" required>
+                <span class="ufo-dropzone-icon" aria-hidden="true">↑</span>
+                <strong>点击选择客户原始 eml 邮件</strong>
+                <span>下一步会进入派送票预览表，可手动修正匹配和文件名。</span>
+            </label>
+            <button type="submit" class="primary-btn dispatch-submit">解析邮件</button>
+        </form>
+    </section>
+</main>
+</body>
+</html>

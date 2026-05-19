@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>原文件预览</title>
+    <link rel="stylesheet" href="/static/styles.css?v=dispatch-layout-wide-20260430">
+    <link rel="stylesheet" href="/static/modules/dispatch_mail/styles.css">
+</head>
+<body>
+<main class="shell wide dispatch-workbench dispatch-source-shell">
+    <section class="topbar dispatch-topbar">
+        <div>
+            <p class="eyebrow">Dispatch Source</p>
+            <h1>{{ attachment.original_name }}</h1>
+            <p class="lead">{{ preview_note }}</p>
+        </div>
+        <div class="actions">
+            <a class="secondary-btn" href="{{ open_href }}" target="_blank">打开原文件</a>
+            <a class="secondary-btn" href="{{ download_href }}">下载原文件</a>
+        </div>
+    </section>
+
+    {% if preview_mode == "sheet" %}
+    <section class="panel dispatch-source-panel">
+        <header class="dispatch-section-head">
+            <div>
+                <h2>首个工作表：{{ sheet_name }}</h2>
+                <p class="hint">为避免页面过重，这里只展示前 {{ rows|length }} 行，并对列数做了适度裁切。</p>
+            </div>
+        </header>
+        <div class="table-wrap">
+            <table class="dispatch-source-table">
+                <tbody>
+                {% for row in rows %}
+                <tr>
+                    {% for cell in row %}
+                    <td>{{ cell }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% elif preview_mode == "pdf" %}
+    <section class="panel dispatch-source-panel dispatch-source-frame-panel">
+        <iframe class="dispatch-source-frame" src="{{ rendered_href }}" title="{{ attachment.original_name }}"></iframe>
+    </section>
+    {% elif preview_mode == "docx_text" %}
+    <section class="panel dispatch-source-panel">
+        <header class="dispatch-section-head">
+            <div>
+                <h2>DOCX 文本预览</h2>
+                <p class="hint">这里优先帮你核对正文内容；如果要看原版排版，请点右上角“打开原文件”。</p>
+            </div>
+        </header>
+        {% if paragraphs %}
+        <div class="dispatch-source-docx">
+            {% for paragraph in paragraphs %}
+            <p>{{ paragraph }}</p>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty">没有读取到可显示的文字内容，请直接打开原文件查看。</p>
+        {% endif %}
+    </section>
+    {% else %}
+    <section class="panel dispatch-source-panel">
+        <p class="empty">当前文件暂不支持内嵌预览，请直接打开原文件核对。</p>
+    </section>
+    {% endif %}
+</main>
+</body>
+</html>

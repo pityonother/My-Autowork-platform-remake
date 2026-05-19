@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from booking_web_app import app as booking_app
+from reconcile_web_app import app as main_app
+
+
+def test_main_pages_open() -> None:
+    client = TestClient(main_app)
+    paths = [
+        "/",
+        "/modules/billing",
+        "/modules/booking",
+        "/modules/dispatch-mail",
+        "/modules/export-customs",
+        "/modules/finance-records",
+        "/modules/mail-classifier",
+        "/modules/ufo-mail",
+    ]
+    for path in paths:
+        response = client.get(path)
+        assert response.status_code == 200, path
+
+
+def test_booking_standalone_entry_opens() -> None:
+    client = TestClient(booking_app, follow_redirects=False)
+    response = client.get("/")
+    assert response.status_code in {200, 307}
+
+    page_response = client.get("/modules/booking")
+    assert page_response.status_code == 200
+
+
+def test_finance_records_rejects_invalid_batch_id() -> None:
+    client = TestClient(main_app, raise_server_exceptions=False)
+    response = client.get("/modules/finance-records?batch_id=abc")
+
+    assert response.status_code == 400
+
+
+def test_finance_export_rejects_invalid_exchange_rate() -> None:
+    client = TestClient(main_app, raise_server_exceptions=False)
+    response = client.post(
+        "/modules/finance-records/export",
+        data={"exchange_rate": "abc"},
+        files={"bill_file": ("bill.xls", b"abc", "application/vnd.ms-excel")},
+    )
+
+    assert response.status_code == 400

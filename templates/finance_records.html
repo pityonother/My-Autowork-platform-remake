@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>财务记录</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/modules/finance/styles.css">
+</head>
+<body>
+<main class="shell finance-shell">
+    <section class="topbar finance-topbar">
+        <div>
+            <p class="eyebrow">财务记录 · 工作台</p>
+            <h1>payment 记录到 OUTBOUND 回填</h1>
+            <p class="lead">这里保存导入后的 payment 记录，支持任务进度跟踪、汇率换算预览，以及把符合条件的记录追加写入 bill 的 OUTBOUND。</p>
+        </div>
+        <div class="actions">
+            <a class="secondary-btn" href="/">返回首页</a>
+        </div>
+    </section>
+
+    <section class="panel finance-import">
+        <header class="finance-section-head">
+            <div>
+                <h2>导入 payment</h2>
+                <p class="hint">这里只导入并保存 payment 记录。bill 模板只在导出时上传，避免历史记录和模板文件混在一起。</p>
+            </div>
+            <span class="status-chip info">导入 · 只读 bill</span>
+        </header>
+
+        {% if imported_batch %}
+        <div class="finance-import-feedback">
+            <div class="finance-import-feedback-head">
+                <span class="finance-feedback-label">本次导入</span>
+                <strong>批次 {{ imported_batch }}</strong>
+            </div>
+            <ul class="finance-kpi-row">
+                <li class="finance-kpi is-read">
+                    <span class="finance-kpi-label">读取</span>
+                    <strong class="finance-kpi-value">{{ import_parsed }}</strong>
+                    <span class="finance-kpi-unit">条</span>
+                </li>
+                <li class="finance-kpi is-new">
+                    <span class="finance-kpi-label">新增</span>
+                    <strong class="finance-kpi-value">{{ import_inserted }}</strong>
+                    <span class="finance-kpi-unit">条</span>
+                </li>
+                <li class="finance-kpi is-dup">
+                    <span class="finance-kpi-label">重复</span>
+                    <strong class="finance-kpi-value">{{ import_duplicates }}</strong>
+                    <span class="finance-kpi-unit">条</span>
+                </li>
+                <li class="finance-kpi is-merge">
+                    <span class="finance-kpi-label">其中补录更新</span>
+                    <strong class="finance-kpi-value">{{ import_merged }}</strong>
+                    <span class="finance-kpi-unit">条</span>
+                </li>
+                <li class="finance-kpi is-skip">
+                    <span class="finance-kpi-label">跳过</span>
+                    <strong class="finance-kpi-value">{{ import_skipped }}</strong>
+                    <span class="finance-kpi-unit">条</span>
+                </li>
+            </ul>
+        </div>
+        {% endif %}
+
+        <form class="finance-upload-form" action="/modules/finance-records/import" method="post" enctype="multipart/form-data">
+            <label class="finance-upload">
+                <input type="file" name="payment_file" accept=".xls,.xlsx" required>
+                <span class="finance-upload-icon" aria-hidden="true">⇡</span>
+                <span class="finance-upload-body">
+                    <span class="finance-upload-title">payment 文件</span>
+                    <span class="finance-upload-sub">.xls / .xlsx · 选好后点击右侧按钮导入</span>
+                    <span class="finance-upload-file" data-upload-file></span>
+                </span>
+            </label>
+            <button type="submit" class="primary-btn">导入记录</button>
+        </form>
+    </section>
+
+    <section class="finance-work-layout">
+        <article class="panel finance-filter">
+            <header class="finance-section-head">
+                <div>
+                    <h2>① 筛查条件</h2>
+                    <p class="hint">本页面的主驾驶舱：下方导出预览和财务记录列表都按这里的条件同步。</p>
+                </div>
+                <span class="status-chip info">主区域</span>
+            </header>
+
+            <form class="finance-filter-form" method="get" action="/modules/finance-records">
+                <div class="finance-filter-fields">
+                    <label class="field">
+                        <span>批次</span>
+                        <select name="batch_id">
+                            <option value="">全部批次</option>
+                            {% for batch in batches %}
+                            <option value="{{ batch.id }}" {% if batch_id == batch.id %}selected{% endif %}>{{ batch.batch_code }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>币种</span>
+                        <select name="currency">
+                            <option value="" {% if not currency %}selected{% endif %}>全部</option>
+                            <option value="RMB" {% if currency == 'RMB' %}selected{% endif %}>RMB</option>
+                            <option value="HKD" {% if currency == 'HKD' %}selected{% endif %}>HKD</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>分类</span>
+                        <select name="category">
+                            {% for option_value, option_label in category_options %}
+                            <option value="{{ option_value }}" {% if category == option_value %}selected{% endif %}>{{ option_label }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>任务状态</span>
+                        <select name="task_status">
+                            <option value="" {% if not task_status %}selected{% endif %}>全部</option>
+                            {% for option_value, option_label in task_status_options %}
+                            <option value="{{ option_value }}" {% if task_status == option_value %}selected{% endif %}>{{ option_label }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>日期从</span>
+                        <input type="date" name="date_from" value="{{ date_from }}">
+                    </label>
+                    <label class="field">
+                        <span>日期到</span>
+                        <input type="date" name="date_to" value="{{ date_to }}">
+                    </label>
+                    <label class="field finance-field-rate">
+                        <span>汇率</span>
+                        <input type="text" name="exchange_rate" value="{{ exchange_rate }}" placeholder="例如 0.91">
+                    </label>
+                </div>
+                <div class="finance-filter-bottom">
+                    <div class="finance-filter-toggles">
+                        <span class="finance-filter-toggles-label">快捷筛选</span>
+                        <label class="finance-check">
+                            <input type="checkbox" name="only_exportable" value="true" {% if only_exportable %}checked{% endif %}>
+                            <span>只看可导出</span>
+                        </label>
+                        <label class="finance-check">
+                            <input type="checkbox" name="only_invoice_required" value="true" {% if only_invoice_required %}checked{% endif %}>
+                            <span>只看需发票</span>
+                        </label>
+                    </div>
+                    <button type="submit" class="primary-btn finance-filter-submit">应用筛选</button>
+                </div>
+            </form>
+
+            <ul class="finance-filter-summary">
+                <li class="finance-summary-chip is-total">
+                    <span>当前</span><strong>{{ record_summary.total_count }}</strong><em>条</em>
+                </li>
+                <li class="finance-summary-chip is-info">
+                    <span>可导出</span><strong>{{ record_summary.exportable_count }}</strong><em>条</em>
+                </li>
+                <li class="finance-summary-chip is-warn">
+                    <span>需发票</span><strong>{{ record_summary.invoice_required_count }}</strong><em>条</em>
+                </li>
+                <li class="finance-summary-chip is-success">
+                    <span>待追加导出</span><strong>{{ record_summary.pending_export_count }}</strong><em>条</em>
+                </li>
+                <li class="finance-summary-chip is-muted">
+                    <span>已导出</span><strong>{{ record_summary.exported_count }}</strong><em>条</em>
+                </li>
+            </ul>
+        </article>
+
+        <aside class="panel finance-batches">
+            <header class="finance-section-head finance-section-head-compact">
+                <div>
+                    <h2>历史批次</h2>
+                    <p class="hint">只做回看和定位，不抢筛查区的位置。</p>
+                </div>
+                <span class="status-chip neutral">次区域</span>
+            </header>
+            <div class="finance-batches-wrap">
+                <table class="finance-table finance-table-compact">
+                    <thead>
+                        <tr>
+                            <th>批次号</th>
+                            <th>记录数</th>
+                            <th>可导出</th>
+                            <th>导入时间</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for batch in batches %}
+                        <tr>
+                            <td>
+                                <a class="finance-batch-link" href="/modules/finance-records/batches/{{ batch.id }}">{{ batch.batch_code }}</a>
+                                <div class="finance-cell-sub">{{ batch.source_file_name }}</div>
+                            </td>
+                            <td>{{ batch.record_count }}</td>
+                            <td>{{ batch.exportable_count or 0 }}</td>
+                            <td>{{ batch.created_at }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </aside>
+    </section>
+
+    <section class="panel finance-export">
+        <header class="finance-section-head">
+            <div>
+                <h2>② OUTBOUND 导出预览</h2>
+                <p class="hint">这里显示当前筛选下允许导出的福永伟创力记录。导出时不检查原 bill 已有内容，也不受"已导出"状态影响，方便反复测试。</p>
+            </div>
+            {% if exchange_rate and not export_error %}
+            <span class="status-chip success">将写入 {{ export_append_count }} 条</span>
+            {% else %}
+            <span class="status-chip neutral">待填写汇率</span>
+            {% endif %}
+        </header>
+
+        {% if export_error %}
+        <div class="finance-alert is-error">
+            <span class="finance-alert-label">错误</span>
+            <ul class="finance-alert-list">
+                <li>{{ export_error }}</li>
+            </ul>
+        </div>
+        {% endif %}
+
+        <form action="/modules/finance-records/export" method="post" enctype="multipart/form-data" class="finance-export-form">
+            <label class="field">
+                <span>bill 模板</span>
+                <input type="file" name="bill_file" accept=".xls,.xlsx" required>
+            </label>
+            <label class="field">
+                <span>汇率</span>
+                <input type="text" name="exchange_rate" value="{{ exchange_rate }}" placeholder="例如 0.91" required>
+            </label>
+            <div class="finance-export-form-actions">
+                <button type="submit" class="primary-btn">导出 OUTBOUND</button>
+            </div>
+            {% if batch_id %}
+            <input type="hidden" name="batch_id" value="{{ batch_id }}">
+            {% endif %}
+            <input type="hidden" name="currency" value="{{ currency }}">
+            <input type="hidden" name="category" value="{{ category }}">
+            <input type="hidden" name="task_status" value="{{ task_status }}">
+            <input type="hidden" name="date_from" value="{{ date_from }}">
+            <input type="hidden" name="date_to" value="{{ date_to }}">
+            <input type="hidden" name="only_exportable" value="{{ 'true' if only_exportable else 'false' }}">
+            <input type="hidden" name="only_invoice_required" value="{{ 'true' if only_invoice_required else 'false' }}">
+        </form>
+
+        <div class="finance-table-wrap">
+            <table class="finance-table finance-table-preview">
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th>FORWARDER INV.NO</th>
+                        <th>HAWB# REF</th>
+                        <th>FORWARDER</th>
+                        <th>SPECIAL HANDLING</th>
+                        <th class="is-numeric">AMOUNT(HKD)</th>
+                        <th>换算备注</th>
+                        <th>批次</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in export_rows %}
+                    <tr>
+                        <td>{{ row.reimbursement_date }}</td>
+                        <td>{{ row.forwarder_inv_no }}</td>
+                        <td>{{ row.hawb_ref }}</td>
+                        <td>{{ row.forwarder }}</td>
+                        <td>{{ row.special_handling }}</td>
+                        <td class="is-numeric">{{ row.amount_hkd }}</td>
+                        <td>{{ row.amount_note }}</td>
+                        <td>{{ row.batch_code }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel finance-records">
+        <header class="finance-section-head">
+            <div>
+                <h2>③ 财务任务记录</h2>
+                <p class="hint">批次、源行号、业务关联、发票状态和导出状态放在一起，核对更快。列较多时表格可横向滚动，表头会吸顶。</p>
+            </div>
+            <span class="status-chip info">共 {{ record_summary.total_count }} 条 · 可横向滚动</span>
+        </header>
+        <div class="finance-table-wrap finance-records-wrap">
+            <table class="finance-table finance-table-dense">
+                <thead>
+                    <tr>
+                        <th class="is-col-date">日期</th>
+                        <th class="is-col-name">支出名称</th>
+                        <th>分类 / 批次</th>
+                        <th>币种 / 金额</th>
+                        <th>业务信息</th>
+                        <th>备注</th>
+                        <th>发票 / 导出</th>
+                        <th>任务状态</th>
+                        <th class="is-col-action">任务操作</th>
+                        <th class="is-col-action">导出状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in records %}
+                    <tr>
+                        <td class="is-col-date">{{ row.reimbursement_date }}</td>
+                        <td class="is-col-name"><strong>{{ row.expense_name }}</strong></td>
+                        <td>
+                            <div>{{ row.category_label }}</div>
+                            <div class="finance-cell-sub">{{ row.batch_code }} / 第 {{ row.source_row_no }} 行</div>
+                        </td>
+                        <td>
+                            <div><strong>{{ row.currency }}</strong></div>
+                            <div class="finance-cell-sub">RMB {{ row.amount_rmb }} / HKD {{ row.amount_hkd }}</div>
+                        </td>
+                        <td>
+                            <div>{{ row.so_customer_raw or "-" }}</div>
+                            <div class="finance-cell-sub">SO：{{ row.so_no or "-" }} / HAWB：{{ row.hawb_ref or "-" }}</div>
+                            <div class="finance-cell-sub">Forwarder：{{ row.forwarder or "-" }}</div>
+                        </td>
+                        <td class="finance-cell-wrap">{{ row.remark or "-" }}</td>
+                        <td>
+                            <div class="finance-chip-stack">
+                                <span class="status-chip {% if row.invoice_required %}warn{% else %}neutral{% endif %}">
+                                    {% if row.invoice_required %}需发票{% else %}无需发票{% endif %}
+                                </span>
+                                <span class="status-chip {% if row.is_bill_exportable %}info{% else %}neutral{% endif %}">
+                                    {% if row.is_bill_exportable %}可导出{% else %}不可导出{% endif %}
+                                </span>
+                                <span class="status-chip {% if row.is_pending_export and row.is_bill_exportable %}success{% else %}neutral{% endif %}">
+                                    {% if row.bill_exported_at %}已导出 {{ row.bill_exported_at }}{% elif row.is_bill_exportable %}待追加导出{% else %}未进入导出{% endif %}
+                                </span>
+                            </div>
+                        </td>
+                        <td>{{ row.task_status_label }}</td>
+                        <td class="is-col-action">
+                            <form class="finance-inline-form" method="post" action="/modules/finance-records/records/{{ row.id }}/task-status">
+                                <select name="task_status">
+                                    {% for option_value, option_label in task_status_options %}
+                                    <option value="{{ option_value }}" {% if row.task_status == option_value %}selected{% endif %}>{{ option_label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button type="submit" class="secondary-btn small-btn">保存</button>
+                            </form>
+                        </td>
+                        <td class="is-col-action">
+                            <form class="finance-inline-form" method="post" action="/modules/finance-records/records/{{ row.id }}/export-status">
+                                <select name="export_status">
+                                    <option value="pending" {% if not row.bill_exported_at %}selected{% endif %}>待导出</option>
+                                    <option value="exported" {% if row.bill_exported_at %}selected{% endif %}>已导出</option>
+                                </select>
+                                <button type="submit" class="secondary-btn small-btn">保存</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<script>
+(function () {
+    var uploads = document.querySelectorAll('.finance-upload input[type="file"]');
+    for (var i = 0; i < uploads.length; i++) {
+        (function (input) {
+            input.addEventListener('change', function () {
+                var target = input.closest('.finance-upload');
+                if (!target) return;
+                var fileCell = target.querySelector('[data-upload-file]');
+                if (input.files && input.files.length) {
+                    target.classList.add('has-files');
+                    if (fileCell) fileCell.textContent = '已选：' + input.files[0].name;
+                } else {
+                    target.classList.remove('has-files');
+                    if (fileCell) fileCell.textContent = '';
+                }
+            });
+        })(uploads[i]);
+    }
+})();
+</script>
+</body>
+</html>

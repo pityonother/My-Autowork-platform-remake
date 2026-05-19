@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>出口清关批次详情</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <main class="shell wide">
+        <section class="topbar">
+            <div>
+                <p class="eyebrow">批次详情</p>
+                <h1>{{ batch.batch_code }}</h1>
+                <p class="lead">
+                    车单号：{{ batch.manifest_code }}，跟单员：{{ batch.tracker }}，日期：{{ batch.shipment_date }}，车次：{{ batch.trip_sequence }}
+                </p>
+            </div>
+            <div class="actions">
+                <a class="secondary-btn" href="/modules/export-customs">返回出口清关</a>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>TAN号</th>
+                            <th>说明</th>
+                            <th>SN NO.</th>
+                            <th>运输方式</th>
+                            <th>目的国</th>
+                            <th>PCS</th>
+                            <th>板数</th>
+                            <th>箱数</th>
+                            <th>货值</th>
+                            <th>毛重</th>
+                            <th>状态</th>
+                            <th>来源文件</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in records %}
+                        <tr class="urgency-{{ row.urgency_color }}">
+                            <td>{{ row.tan_number }}</td>
+                            <td>{{ row.tan_description }}</td>
+                            <td>{{ row.sn_number }}</td>
+                            <td>{{ row.ship_mode }}</td>
+                            <td>{{ row.destination }}</td>
+                            <td>{{ row.total_pcs }}</td>
+                            <td>{{ row.pallet_count }}</td>
+                            <td>{{ row.carton_count }}</td>
+                            <td>{{ row.total_value_usd }}</td>
+                            <td>{{ row.gross_weight_kg }}</td>
+                            <td>{{ row.clearance_status }}</td>
+                            <td>{{ row.source_file_name }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

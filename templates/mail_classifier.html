@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>邮件标签分类器</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/modules/mail_classifier/styles.css">
+</head>
+<body>
+    <main class="mail-classifier-page">
+        <header class="mail-app-header">
+            <div>
+                <p class="eyebrow">Mail Classifier</p>
+                <h1>邮件标签分类器</h1>
+                <p class="lead">只读同步网易企业邮箱邮件，在本项目内生成业务标签；不会移动、删除或修改邮箱里的原始邮件。</p>
+            </div>
+            <div class="mail-header-actions">
+                {% if account_form.account_email %}
+                <span class="mail-current-account">{{ account_form.account_email }}</span>
+                {% endif %}
+                <a class="ghost-link" href="/">返回首页</a>
+            </div>
+        </header>
+
+        {% if error %}
+        <section class="mail-notice danger-panel">
+            <strong>同步失败：</strong>{{ error }}
+        </section>
+        {% endif %}
+
+        {% if sync_result %}
+        <section class="mail-notice success-panel">
+            已同步 {{ sync_result.mailbox }}：扫描 {{ sync_result.scanned }} 封，新增 {{ sync_result.imported }} 封，更新 {{ sync_result.updated }} 封，跳过 {{ sync_result.skipped }} 封。
+        </section>
+        {% endif %}
+
+        <section class="mail-workspace">
+            <aside class="mail-control-rail">
+                <form class="mail-side-panel mail-sync-panel" method="post" action="/modules/mail-classifier/sync">
+                    <div class="mail-panel-head">
+                        <div>
+                            <p class="eyebrow">Account</p>
+                            <h2>邮箱连接</h2>
+                        </div>
+                        {% if account_form.has_password %}
+                        <span class="status-chip success">已保存密码</span>
+                        {% else %}
+                        <span class="status-chip warn">需要密码</span>
+                        {% endif %}
+                    </div>
+
+                    <label>
+                        邮箱账号
+                        <input type="email" name="account_email" value="{{ account_form.account_email }}" placeholder="name@company.com" required>
+                    </label>
+                    <label>
+                        IMAP 服务器
+                        <input type="text" name="imap_host" value="{{ account_form.imap_host or default_imap_host }}" required>
+                    </label>
+                    <div class="mail-compact-grid">
+                        <label>
+                            端口
+                            <input type="number" name="imap_port" value="{{ account_form.imap_port or default_imap_port }}" min="1" max="65535" required>
+                        </label>
+                        <label>
+                            同步天数
+                            <input type="number" name="sync_days" value="{{ account_form.sync_days or default_sync_days }}" min="1" max="365">
+                        </label>
+                    </div>
+                    <label>
+                        密码
+                        <input type="password" name="password" placeholder="{% if account_form.has_password %}留空则继续使用已保存密码{% else %}首次同步需要填写{% endif %}">
+                    </label>
+                    <label>
+                        邮箱文件夹
+                        <input type="text" name="mailbox" value="{{ account_form.default_mailbox or default_mailbox }}" placeholder="INBOX">
+                    </label>
+
+                    <p class="cell-subtle">密码使用 Windows DPAPI 保存到本机 runtime 数据库，不写入代码；更换 Windows 用户或机器后需要重新输入。</p>
+                    <button class="primary-btn" type="submit">保存并同步最近邮件</button>
+                </form>
+
+                <section class="mail-side-panel">
+                    <div class="mail-panel-head">
+                        <div>
+                            <p class="eyebrow">Overview</p>
+                            <h2>当前状态</h2>
+                        </div>
+                    </div>
+                    <div class="mail-metric-list">
+                        <div>
+                            <span>邮件记录</span>
+                            <strong>{{ summary.total }}</strong>
+                        </div>
+                        <div>
+                            <span>待确认</span>
+                            <strong>{{ summary.needs_review }}</strong>
+                        </div>
+                        <div>
+                            <span>待处理</span>
+                            <strong>{{ summary.pending }}</strong>
+                        </div>
+                    </div>
+                    {% if accounts %}
+                    <div class="mail-account-list">
+                        {% for account in accounts %}
+                        <a class="mail-account-chip {% if selected_account == account.account_email %}active{% endif %}" href="/modules/mail-classifier?account_email={{ account.account_email }}">
+                            {{ account.account_email }}
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="cell-subtle">还没有保存邮箱账号。先在上方填写并同步一次。</p>
+                    {% endif %}
+                </section>
+
+                <form class="mail-side-panel mail-filter-panel" method="get" action="/modules/mail-classifier">
+                    <div class="mail-panel-head">
+                        <div>
+                            <p class="eyebrow">Filter</p>
+                            <h2>筛选</h2>
+                        </div>
+                    </div>
+                    <label>
+                        邮箱
+                        <select name="account_email">
+                            <option value="">全部邮箱</option>
+                            {% for account in accounts %}
+                            <option value="{{ account.account_email }}" {% if selected_account == account.account_email %}selected{% endif %}>{{ account.account_email }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label>
+                        业务标签
+                        <select name="business_label">
+                            <option value="">全部标签</option>
+                            {% for key, name in business_labels %}
+                            <option value="{{ key }}" {% if selected_business_label == key %}selected{% endif %}>{{ name }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label>
+                        状态
+                        <select name="status_label">
+                            <option value="">全部状态</option>
+                            {% for key, name in status_labels %}
+                            <option value="{{ key }}" {% if selected_status_label == key %}selected{% endif %}>{{ name }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <button class="secondary-btn" type="submit">筛选结果</button>
+                </form>
+            </aside>
+
+            <section class="mail-results-workbench">
+                <div class="mail-results-toolbar">
+                    <div>
+                        <p class="eyebrow">Messages</p>
+                        <h2>自动标签结果</h2>
+                    </div>
+                    <div class="mail-toolbar-summary">
+                        <span>{{ messages | length }} 封当前结果</span>
+                        <span>人工确认区完整展示</span>
+                    </div>
+                </div>
+
+                <div class="mail-message-list">
+                    {% for message in messages %}
+                    <article class="mail-message-row">
+                        <div class="mail-message-meta">
+                            <time>{{ message.received_at or '-' }}</time>
+                            <span>{{ message.mailbox }}</span>
+                            <strong>{{ message.from_name or message.from_addr or '-' }}</strong>
+                            <small>{{ message.from_addr }}</small>
+                        </div>
+
+                        <div class="mail-message-content">
+                            <h3>{{ message.subject or '(无主题)' }}</h3>
+                            {% if message.body_preview %}
+                            <p class="mail-message-preview">{{ message.body_preview }}</p>
+                            {% endif %}
+                            {% if message.matched_rules_list %}
+                            <div class="mail-rule-hits">
+                                {% for rule in message.matched_rules_list %}
+                                <span>{{ rule.label_name }}：{{ rule.hits | join(', ') }}</span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            <div class="mail-attachment-list">
+                                {% if message.attachment_names_list %}
+                                    {% for name in message.attachment_names_list %}
+                                    <span>{{ name }}</span>
+                                    {% endfor %}
+                                {% else %}
+                                    <span>无附件</span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="mail-message-system">
+                            <div class="status-stack">
+                                {% for name in message.business_label_names %}
+                                <span class="status-chip info">{{ name }}</span>
+                                {% endfor %}
+                                <span class="status-chip {% if message.status_label == 'needs_review' %}warn{% elif message.status_label == 'completed' %}success{% else %}neutral{% endif %}">{{ message.status_label_name }}</span>
+                            </div>
+                            <span class="mail-confidence">置信度 {{ message.confidence }}%</span>
+                            {% if message.risk_label_names %}
+                            <div class="mail-risk-list">
+                                {% for name in message.risk_label_names %}
+                                <span>{{ name }}</span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <form class="mail-message-actions" method="post" action="/modules/mail-classifier/messages/{{ message.id }}/labels">
+                            <div class="mail-checkbox-grid">
+                                {% for key, name in business_labels %}
+                                <label>
+                                    <input type="checkbox" name="business_labels" value="{{ key }}" {% if key in message.business_label_keys %}checked{% endif %}>
+                                    {{ name }}
+                                </label>
+                                {% endfor %}
+                            </div>
+                            <div class="mail-action-row">
+                                <select name="status_label">
+                                    {% for key, name in status_labels %}
+                                    <option value="{{ key }}" {% if message.status_label == key %}selected{% endif %}>{{ name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button class="small-btn" type="submit">保存</button>
+                            </div>
+                        </form>
+                    </article>
+                    {% else %}
+                    <div class="mail-empty-state">
+                        <h3>还没有邮件记录</h3>
+                        <p>请先在左侧同步邮箱，系统会把邮件放到这里等待确认。</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+        </section>
+    </main>
+</body>
+</html>

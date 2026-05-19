@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>单页账单检查</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <main class="shell wide">
+        <section class="topbar">
+            <div>
+                <p class="eyebrow">单页账单检查</p>
+                <h1>{{ invoice.customer_order_no }} | {{ invoice.invoice_name }}</h1>
+                <p class="lead">
+                    运输单号 {{ invoice.transport_no or '-' }}，
+                    发票号 {{ invoice.invoice_number }}，
+                    作业日期 {{ invoice.job_date }}，
+                    车型 {{ invoice.truck_type }}，
+                    匹配总表第 {{ invoice.matched_row }} 行
+                </p>
+            </div>
+            <div class="actions">
+                <a class="secondary-btn" href="/session/{{ session_id }}">返回总表预览</a>
+                <a class="primary-btn" href="/download/{{ session_id }}">下载回填后的总表</a>
+            </div>
+        </section>
+
+        <section class="grid two">
+            <article class="panel stat-panel">
+                <h2>回填摘要</h2>
+                <dl class="facts">
+                    <div><dt>登记费</dt><dd>{{ invoice.registration_fee }}</dd></div>
+                    <div><dt>停车费</dt><dd>{{ invoice.parking_fee }}</dd></div>
+                    <div><dt>进仓费</dt><dd>{{ invoice.inbound_fee }}</dd></div>
+                    <div><dt>多点送货费</dt><dd>{{ invoice.multi_point_delivery_fee }}</dd></div>
+                    <div><dt>装卸费</dt><dd>{{ invoice.loading_fee }}</dd></div>
+                    <div><dt>装卸备注</dt><dd>{{ invoice.loading_remark }}</dd></div>
+                    <div><dt>运费</dt><dd>{{ invoice.freight }}</dd></div>
+                    <div><dt>报价运费</dt><dd>{{ invoice.quoted_freight or '未匹配到报价' }}</dd></div>
+                    <div><dt>香港无缝费</dt><dd>{{ invoice.seamless_fee }}</dd></div>
+                    <div><dt>租柜费</dt><dd>{{ invoice.container_rental_fee }}</dd></div>
+                    <div><dt>传真快递费</dt><dd>{{ invoice.express_fee }}</dd></div>
+                    <div><dt>派送单行数</dt><dd>{{ invoice.delivery_note_lines|length }}</dd></div>
+                    <div><dt>派送单总件数</dt><dd>{{ invoice.delivery_total_pieces }}</dd></div>
+                    <div><dt>派送单总毛重</dt><dd>{{ invoice.delivery_total_weight }}</dd></div>
+                    <div><dt>真实数据源 Tan 数</dt><dd>{{ invoice.source_tan_records|length }}</dd></div>
+                    <div><dt>真实数据源总箱数</dt><dd>{{ invoice.source_total_cartons }}</dd></div>
+                    <div><dt>真实数据源计费散箱</dt><dd>{{ invoice.source_total_loose_cartons }}</dd></div>
+                    <div><dt>真实数据源总毛重</dt><dd>{{ invoice.source_total_weight }}</dd></div>
+                </dl>
+            </article>
+
+            <article class="panel">
+                <h2>收费名称汇总</h2>
+                <div class="table-wrap compact">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>收费名称</th>
+                                <th>合计</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in fee_totals %}
+                            <tr>
+                                <td>{{ item.fee_name }}</td>
+                                <td>{{ item.amount }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>业务校验提醒</h2>
+                <p>这里显示按当前业务规则检查出的缺项提醒。</p>
+            </div>
+            {% if invoice.validation_issue_count %}
+            <ul class="alert-list">
+                {% for item in invoice.validation_issues %}
+                <li><strong>{{ item.title }}</strong>：{{ item.detail }}</li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty">这张单页账单当前没有触发业务校验提醒。</p>
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>派送单内容</h2>
+                <p>这里直接显示派送单里的每票信息，方便你先看人工录入内容，再和真实数据源逐条对比。</p>
+            </div>
+            {% if invoice.delivery_note_lines %}
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>派送单号</th>
+                            <th>仓单号SO</th>
+                            <th>收货公司</th>
+                            <th>详细地址</th>
+                            <th>总件数</th>
+                            <th>板数</th>
+                            <th>物料毛重</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in invoice.delivery_note_lines %}
+                        <tr>
+                            <td>{{ item.delivery_no }}</td>
+                            <td>{{ item.warehouse_so }}</td>
+                            <td>{{ item.company_name }}</td>
+                            <td>{{ item.address }}</td>
+                            <td>{{ item.total_pieces }}</td>
+                            <td>{{ item.pallet_count }}</td>
+                            <td>{{ item.gross_weight }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="empty">当前没有匹配到对应派送单。</p>
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>真实数据源内容</h2>
+                <p>这里显示以 SLI 命名的真实数据源聚合结果。一个 Tan# 可能对应多行明细，系统已经按 Tan# 加总后展示。</p>
+            </div>
+            {% if invoice.source_tan_records %}
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tan#</th>
+                            <th>说明</th>
+                            <th>箱数</th>
+                            <th>板数</th>
+                            <th>计费散箱</th>
+                            <th>毛重</th>
+                            <th>聚合行数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in invoice.source_tan_records %}
+                        <tr>
+                            <td>{{ item.tan_no }}</td>
+                            <td>{{ item.description }}</td>
+                            <td>{{ item.carton_count }}</td>
+                            <td>{{ item.pallet_count }}</td>
+                            <td>{{ item.loose_carton_count }}</td>
+                            <td>{{ item.gross_weight }}</td>
+                            <td>{{ item.row_count }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="empty">当前没有匹配到对应的真实数据源文件。</p>
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>问题描述</h2>
+                <p>这里汇总真实数据源、派送单和账单说明里触发的提醒。提醒不会阻塞总表导出。</p>
+            </div>
+            {% if invoice.delivery_validation_issue_count %}
+            <ul class="alert-list">
+                {% for item in invoice.delivery_validation_issues %}
+                <li><strong>{{ item.title }}</strong>：{{ item.detail }}</li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty">这张单页账单当前没有触发派送校验提醒。</p>
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>派送费说明重复提醒</h2>
+                <p>这里专门看单页账单里的派送费说明，找出可能重复指向同一个送货地点的记录。</p>
+            </div>
+            {% if invoice.duplicate_delivery_fee_notes %}
+            <div class="table-wrap compact">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>送货备注</th>
+                            <th>重复次数</th>
+                            <th>行号</th>
+                            <th>金额</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in invoice.duplicate_delivery_fee_notes %}
+                        <tr class="warn-row">
+                            <td>{{ item.display_note }}</td>
+                            <td>{{ item.count }}</td>
+                            <td>{{ item.rows | join('、') }}</td>
+                            <td>{{ item.amounts | join('、') }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="empty">这张单页账单当前没有发现重复的派送费说明。</p>
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>费用名称提醒</h2>
+                <p>这里列出系统判断“收费名称可能录错”的项目，方便重点复核。</p>
+            </div>
+            {% if invoice.suspected_fee_name_error_count %}
+            <div class="table-wrap compact">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>行号</th>
+                            <th>原收费名称</th>
+                            <th>系统改判</th>
+                            <th>金额</th>
+                            <th>说明</th>
+                            <th>原因</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in invoice.suspected_fee_name_errors %}
+                        <tr>
+                            <td>{{ item.row_number }}</td>
+                            <td>{{ item.original_fee_name }}</td>
+                            <td>{{ item.corrected_fee_name }}</td>
+                            <td>{{ item.amount }}</td>
+                            <td>{{ item.description }}</td>
+                            <td>{{ item.reason }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="empty">这张单页账单没有发现疑似录错的费用名称。</p>
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>收费明细</h2>
+                <form method="get" class="filter-form">
+                    <input type="text" name="fee_filter" value="{{ fee_filter }}" placeholder="输入收费名称、描述或规范名筛选">
+                    <button type="submit" class="primary-btn small">筛选</button>
+                </form>
+            </div>
+            <div class="quick-filter-row">
+                {% for item in quick_filters %}
+                <a class="secondary-btn small-btn" href="/session/{{ session_id }}/invoice/{{ invoice_index }}?fee_filter={{ item[1] }}">{{ item[0] }}</a>
+                {% endfor %}
+                <a class="secondary-btn small-btn" href="/session/{{ session_id }}/invoice/{{ invoice_index }}">清除筛选</a>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>行号</th>
+                            <th>收费名称</th>
+                            <th>说明</th>
+                            <th>金额</th>
+                            <th>币种</th>
+                            <th>规范名</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in fee_items %}
+                        <tr{% if item.suspected_name_error %} class="warn-row"{% endif %}>
+                            <td>{{ item.row_number }}</td>
+                            <td>{{ item.fee_name }}</td>
+                            <td>{{ item.description }}</td>
+                            <td>{{ item.amount }}</td>
+                            <td>{{ item.currency }}</td>
+                            <td>
+                                {{ item.normalized_fee_name }}
+                                {% if item.suspected_name_error %}
+                                <span class="warn-inline">疑似录错</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

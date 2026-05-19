@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>账单与清关工具</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <main class="shell landing-shell">
+        <section class="hero hero-landing">
+            <div class="hero-copy">
+                <p class="eyebrow">Workspace</p>
+                <h1>账单与清关工作台</h1>
+                <p class="lead">
+                    选择一个模块进入工作区。每个模块都有自己独立的导入页、预览页和导出流程，
+                    这样首页会更清爽，后续加功能也更容易继续扩展。
+                </p>
+                <div class="hero-tags">
+                    <span>模块化入口</span>
+                    <span>独立上传页</span>
+                    <span>出口清关保留历史</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="module-grid">
+            {% for module in modules %}
+            <a class="module-card module-card-{{ loop.index }}" href="{{ module.href }}">
+                <div class="module-card-top">
+                    <span class="module-chip">0{{ loop.index }}</span>
+                    <span class="module-state">{{ module.badge or '模块入口' }}</span>
+                </div>
+                <div class="module-icon" aria-hidden="true">{{ module.icon }}</div>
+                <div class="module-content">
+                    <h2>{{ module.title }}</h2>
+                    <p class="module-subtitle">{{ module.subtitle }}</p>
+                    <p class="module-description">{{ module.description }}</p>
+                </div>
+                <div class="module-footer">
+                    <span class="module-link">打开工作区</span>
+                    <span class="module-arrow" aria-hidden="true">→</span>
+                </div>
+            </a>
+            {% endfor %}
+        </section>
+    </main>
+</body>
+</html>

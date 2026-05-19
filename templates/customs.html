@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>清关预览</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <main class="shell wide">
+        <section class="topbar">
+            <div>
+                <p class="eyebrow">清关模块</p>
+                <h1>进口清关预览</h1>
+                <p class="lead">
+                    订单管理：{{ order_management_name }}，真实数据源：{{ source_count }} 份，bill 模板：{{ customs_bill_name or '未导入' }}
+                </p>
+            </div>
+            <div class="actions">
+                <a class="secondary-btn" href="/">重新导入</a>
+                {% if has_billing %}
+                <a class="secondary-btn" href="/session/{{ session_id }}">切换到总账模块</a>
+                {% endif %}
+                {% if has_customs_preview_output %}
+                <a class="secondary-btn" href="/download/customs-preview/{{ session_id }}">导出清关预览</a>
+                {% endif %}
+                {% if has_customs_bill_output %}
+                <a class="primary-btn" href="/download/customs-bill/{{ session_id }}">下载清关 bill</a>
+                {% endif %}
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>异常提示</h2>
+                <p>这里列出订单管理或真实数据源没有对上的情况。提醒不会阻塞清关预览导出。</p>
+            </div>
+            {% if errors %}
+            <ul class="alert-list">
+                {% for item in errors %}
+                <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="empty">当前没有解析错误或缺失匹配。</p>
+            {% endif %}
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>清关中间态预览</h2>
+                <p>这里显示作业时间、港车车牌、无缝号、总箱数、总 PCS、总板数、总毛重、总金额港币、Declaration fees 结果，以及品名和商品编码去重结果，作为清关依据。</p>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>客户订单号</th>
+                            <th>主单号</th>
+                            <th>作业时间</th>
+                            <th>港车车牌</th>
+                            <th>无缝号</th>
+                            <th>总箱数</th>
+                            <th>总PCS数</th>
+                            <th>总板数</th>
+                            <th>总毛重</th>
+                            <th>总金额USD</th>
+                            <th>总金额HKD</th>
+                            <th>Declaration fees</th>
+                            <th>品名</th>
+                            <th>商品编码</th>
+                            <th>Tan#</th>
+                            <th>提醒</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr{% if row.warnings %} class="warn-row"{% endif %}>
+                            <td>{{ row.customer_order_no }}</td>
+                            <td>{{ row.transport_no }}</td>
+                            <td>{{ row.ship_date }}</td>
+                            <td>{{ row.hk_plate }}</td>
+                            <td>{{ row.seamless_no_display }}</td>
+                            <td>{{ row.total_cartons_display }}</td>
+                            <td>{{ row.total_pcs_display }}</td>
+                            <td>{{ row.total_pallets_display }}</td>
+                            <td>{{ row.total_gross_weight }}</td>
+                            <td>{{ row.total_amount_usd }}</td>
+                            <td>{{ row.total_amount_hkd }}</td>
+                            <td>{{ row.declaration_fee_display }}</td>
+                            <td>{{ row.product_names | join(' / ') }}</td>
+                            <td>{{ row.commodity_codes | join(' / ') }}</td>
+                            <td>{{ row.tan_nos | join(' / ') }}</td>
+                            <td>{{ row.warnings | join('；') }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>bill 回填字段</h2>
+                <p>导出到进口清关子表时，会使用如下字段：Ship Date、Job Ref#、车牌、箱数、毛重、总金额USD、UDR no.、Smooth Handling、Declaration fees。页面只展示结果，Excel 里仍然保留原公式。</p>
+            </div>
+            <div class="table-wrap compact">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>客户订单号</th>
+                            <th>Ship Date</th>
+                            <th>Job Ref#</th>
+                            <th>车牌</th>
+                            <th>箱数</th>
+                            <th>毛重(KG)</th>
+                            <th>总金额(USD)</th>
+                            <th>UDR no.</th>
+                            <th>SMOOTH Handling</th>
+                            <th>Declaration fees</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr>
+                            <td>{{ row.customer_order_no }}</td>
+                            <td>{{ row.ship_date_label }}</td>
+                            <td>{{ row.customer_order_no }}</td>
+                            <td>{{ row.hk_plate }}</td>
+                            <td>{{ row.total_cartons_display }}</td>
+                            <td>{{ row.total_gross_weight }}</td>
+                            <td>{{ row.total_amount_usd }}</td>
+                            <td></td>
+                            <td>10</td>
+                            <td>{{ row.declaration_fee_display }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>回填预览</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <main class="shell wide">
+        <section class="topbar">
+            <div>
+                <p class="eyebrow">回填预览</p>
+                <h1>总表预览与单页账单检查</h1>
+                <p class="lead">
+                    总表文件：{{ master_name }}，单页账单：{{ invoice_count }} 份，派送单：{{ delivery_note_count }} 份，真实数据源：{{ source_count }} 份
+                </p>
+            </div>
+            <div class="actions">
+                <a class="secondary-btn" href="/">重新导入</a>
+                {% if has_customs %}
+                <a class="secondary-btn" href="/session/{{ session_id }}/customs">切换到清关模块</a>
+                {% endif %}
+                <a class="primary-btn" href="/download/{{ session_id }}">下载回填后的总表</a>
+            </div>
+        </section>
+
+        <section class="grid two">
+            <article class="panel">
+                <h2>成功匹配</h2>
+                <div class="table-wrap compact">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>单页账单</th>
+                                <th>总表行</th>
+                                <th>客户订单号</th>
+                                <th>进仓费</th>
+                                <th>多点送货费</th>
+                                <th>装卸备注</th>
+                                <th>费用名提醒</th>
+                                <th>业务提醒</th>
+                                <th>派送单提醒</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in applied %}
+                            <tr>
+                                <td>{{ item.invoice_name }}</td>
+                                <td>{{ item.matched_row }}</td>
+                                <td>{{ item.customer_order_no }}</td>
+                                <td>{{ item.inbound_fee }}</td>
+                                <td>{{ item.multi_point_delivery_fee }}</td>
+                                <td>{{ item.loading_remark }}</td>
+                                <td>
+                                    {% set matched = invoice_previews | selectattr('invoice_name', 'equalto', item.invoice_name) | list %}
+                                    {% if matched and matched[0].suspected_fee_name_error_count %}
+                                    <span class="warn-badge">{{ matched[0].suspected_fee_name_error_count }} 项</span>
+                                    {% else %}
+                                    <span class="ok-badge">无</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if matched and matched[0].validation_issue_count %}
+                                    <span class="warn-badge">{{ matched[0].validation_issue_count }} 项</span>
+                                    {% else %}
+                                    <span class="ok-badge">通过</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if matched and matched[0].delivery_validation_issue_count %}
+                                    <span class="warn-badge">{{ matched[0].delivery_validation_issue_count }} 项</span>
+                                    {% else %}
+                                    <span class="ok-badge">通过</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+
+            <article class="panel">
+                <h2>异常提示</h2>
+                {% if errors %}
+                <ul class="alert-list">
+                    {% for error in errors %}
+                    <li>{{ error }}</li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty">这次导入没有出现未匹配或解析失败的账单。</p>
+                {% endif %}
+            </article>
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>单页账单导航</h2>
+                <p>按客户订单号排序，方便你检查是否缺少某一票，也能直接进入详情页核对派送单与派送费说明。</p>
+            </div>
+            <div class="pill-list">
+                {% for invoice in invoice_previews %}
+                <a class="pill{% if invoice.suspected_fee_name_error_count or invoice.validation_issue_count or invoice.delivery_validation_issue_count %} pill-warn{% endif %}" href="/session/{{ session_id }}/invoice/{{ loop.index0 }}">
+                    {{ invoice.customer_order_no }} | {{ invoice.invoice_name }}
+                    {% if invoice.delivery_validation_issue_count %}
+                    | 派送 {{ invoice.delivery_validation_issue_count }}
+                    {% endif %}
+                    {% if invoice.suspected_fee_name_error_count %}
+                    | 费用 {{ invoice.suspected_fee_name_error_count }}
+                    {% endif %}
+                    {% if invoice.validation_issue_count %}
+                    | 业务 {{ invoice.validation_issue_count }}
+                    {% endif %}
+                </a>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="section-head">
+                <h2>总表预览</h2>
+                <p>这里显示的是回填后的总表内容，方便你在下载前先检查。</p>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            {% for header in master_headers %}
+                            <th>{{ header }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in master_rows %}
+                        <tr>
+                            {% for header in master_headers %}
+                            <td>{{ row[header] }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

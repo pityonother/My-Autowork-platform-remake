@@ -1,0 +1,809 @@
+﻿.ufo-issue-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.issue-option,
+.ufo-issue-card {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: #fffaf3;
+}
+
+.issue-option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 14px;
+    cursor: pointer;
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.issue-option:hover {
+    transform: translateY(-2px);
+    border-color: #d48b49;
+    box-shadow: 0 12px 28px rgba(101, 76, 52, 0.12);
+}
+
+.issue-option input {
+    margin-top: 4px;
+}
+
+.issue-option strong,
+.issue-option em,
+.issue-option small {
+    display: block;
+}
+
+.issue-option em {
+    margin-top: 4px;
+    color: var(--accent-dark);
+    font-style: normal;
+    font-weight: 700;
+}
+
+.issue-option small {
+    margin-top: 8px;
+    color: var(--muted);
+    line-height: 1.5;
+    white-space: normal;
+}
+
+.ufo-issue-card {
+    padding: 16px;
+}
+
+.issue-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+}
+
+.muted-card {
+    opacity: 0.66;
+}
+
+@media (max-width: 900px) {
+    .hero,
+    .grid.two,
+    .topbar {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+
+    .grid.priority-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .topbar {
+        gap: 18px;
+    }
+
+    .module-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .module-card {
+        min-height: 0;
+    }
+
+    .facts {
+        grid-template-columns: 1fr;
+    }
+
+    .form-grid,
+    .issue-picker-grid,
+    .ufo-issue-list {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ===== UFO 閭欢鐢熸垚鍣?路 閲嶅啓鍚庣殑宸ヤ綔鍙版牱寮?===== */
+.ufo-workbench code {
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: rgba(184, 87, 45, 0.08);
+    border: 1px solid rgba(184, 87, 45, 0.18);
+    color: var(--accent-dark);
+    font-family: "JetBrains Mono", "Consolas", "Menlo", monospace;
+    font-size: 0.9em;
+}
+
+.ufo-topbar {
+    background:
+        linear-gradient(135deg, rgba(184, 87, 45, 0.10), rgba(255, 253, 249, 0.95) 60%),
+        var(--panel);
+}
+
+.ufo-topbar h1 {
+    font-size: clamp(26px, 3vw, 36px);
+}
+
+.ufo-alert {
+    margin: 0 0 20px;
+    padding: 14px 18px;
+    border-radius: 16px;
+    border: 1px solid #e6b1a6;
+    background: #fdecea;
+    color: #8c2a1b;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: baseline;
+}
+
+.ufo-alert-label {
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+.ufo-alert-message {
+    font-weight: 600;
+}
+
+.ufo-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.ufo-section-head > div {
+    flex: 1 1 320px;
+}
+
+.ufo-section-head h2 {
+    margin-bottom: 6px;
+}
+
+.ufo-primary {
+    padding: 26px 26px 22px;
+    background:
+        linear-gradient(180deg, rgba(255, 253, 249, 1), rgba(248, 241, 228, 0.92)),
+        var(--panel);
+}
+
+.ufo-form {
+    display: grid;
+    gap: 22px;
+}
+
+.ufo-subsection {
+    padding: 18px;
+    border-radius: 20px;
+    border: 1px solid rgba(223, 211, 191, 0.9);
+    background: rgba(255, 255, 255, 0.7);
+}
+
+.ufo-subsection-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.ufo-subsection-head h3 {
+    margin: 0;
+    font-size: 16px;
+    letter-spacing: 0.02em;
+    color: var(--accent-dark);
+}
+
+.ufo-muted {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.ufo-field-grid {
+    display: grid;
+    gap: 14px;
+}
+
+.ufo-field-grid.four {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ufo-memory-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+}
+
+.ufo-count {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: #fff5ec;
+    border: 1px solid #efc8ab;
+    color: var(--accent-dark);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+.ufo-count[data-count="0"] {
+    background: #f7f1e7;
+    border-color: var(--line);
+    color: var(--muted);
+}
+
+/* 闄勪欢涓婁紶鍖?*/
+.ufo-dropzone {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 28px 20px;
+    border-radius: 20px;
+    border: 2px dashed rgba(184, 87, 45, 0.42);
+    background:
+        radial-gradient(circle at 50% 0%, rgba(184, 87, 45, 0.08), transparent 60%),
+        #fffaf3;
+    color: var(--text);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.ufo-dropzone:hover {
+    border-color: var(--accent);
+    background:
+        radial-gradient(circle at 50% 0%, rgba(184, 87, 45, 0.14), transparent 60%),
+        #fff6ea;
+    transform: translateY(-1px);
+}
+
+.ufo-dropzone.has-files {
+    border-color: var(--green);
+    background:
+        radial-gradient(circle at 50% 0%, rgba(49, 95, 74, 0.12), transparent 60%),
+        #f4faf6;
+}
+
+.ufo-dropzone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+.ufo-dropzone-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 999px;
+    background: white;
+    border: 1px solid rgba(184, 87, 45, 0.24);
+    color: var(--accent);
+    font-size: 22px;
+    font-weight: 800;
+    box-shadow: 0 6px 16px rgba(184, 87, 45, 0.12);
+}
+
+.ufo-dropzone.has-files .ufo-dropzone-icon {
+    border-color: rgba(49, 95, 74, 0.28);
+    color: var(--green);
+    box-shadow: 0 6px 16px rgba(49, 95, 74, 0.14);
+}
+
+.ufo-dropzone-title {
+    font-size: 16px;
+    font-weight: 800;
+}
+
+.ufo-dropzone-sub {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.ufo-file-list {
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+}
+
+.ufo-file-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: white;
+    border: 1px solid var(--line);
+    font-size: 13px;
+}
+
+.ufo-file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.ufo-file-size {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
+}
+
+/* 闂鍕鹃€夊崱鐗?*/
+.ufo-issue-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+
+.ufo-issue-tile {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: start;
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: #fffaf3;
+    cursor: pointer;
+    transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.ufo-issue-tile:hover {
+    border-color: rgba(184, 87, 45, 0.4);
+    box-shadow: 0 10px 24px rgba(101, 76, 52, 0.10);
+    transform: translateY(-1px);
+}
+
+.ufo-issue-tile input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.ufo-issue-indicator {
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    border: 2px solid rgba(184, 87, 45, 0.5);
+    background: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    transition: background 0.16s ease, border-color 0.16s ease;
+    margin-top: 2px;
+}
+
+.ufo-issue-indicator::after {
+    content: "";
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: transparent;
+    transition: background 0.16s ease;
+}
+
+.ufo-issue-tile.is-checked,
+.ufo-issue-tile:has(input:checked) {
+    border-color: var(--accent);
+    background: linear-gradient(180deg, #fff5ec, #ffe8d6);
+    box-shadow: 0 12px 28px rgba(184, 87, 45, 0.18);
+}
+
+.ufo-issue-tile.is-checked .ufo-issue-indicator,
+.ufo-issue-tile:has(input:checked) .ufo-issue-indicator {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.ufo-issue-tile.is-checked .ufo-issue-indicator::after,
+.ufo-issue-tile:has(input:checked) .ufo-issue-indicator::after {
+    background: white;
+}
+
+.ufo-issue-body {
+    display: grid;
+    gap: 4px;
+}
+
+.ufo-issue-cn {
+    font-weight: 800;
+    font-size: 15px;
+    color: var(--text);
+}
+
+.ufo-issue-en {
+    color: var(--accent-dark);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.01em;
+}
+
+.ufo-issue-detail {
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+
+/* 涓诲尯搴曢儴 */
+.ufo-form-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding-top: 4px;
+    flex-wrap: wrap;
+}
+
+.ufo-submit {
+    padding: 14px 26px;
+    font-size: 15px;
+    box-shadow: 0 14px 28px rgba(184, 87, 45, 0.28);
+}
+
+.ufo-submit:hover {
+    box-shadow: 0 18px 34px rgba(142, 63, 30, 0.32);
+}
+
+/* 鏂板缓闂 + 鎻愮ず 涓ゅ垪 */
+.ufo-admin-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+}
+
+.ufo-create-issue .dialog-actions {
+    justify-content: flex-start;
+}
+
+.ufo-signature-card .dialog-actions {
+    justify-content: flex-start;
+}
+
+.ufo-signature-status {
+    display: grid;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #fffaf3;
+    border: 1px solid #f0dfca;
+}
+
+.ufo-tip-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 12px;
+}
+
+.ufo-tip-list li {
+    position: relative;
+    padding: 12px 14px 12px 38px;
+    border-radius: 14px;
+    background: #fffaf3;
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-size: 13.5px;
+    line-height: 1.55;
+}
+
+.ufo-tip-list li::before {
+    content: "鈥?;
+    position: absolute;
+    left: 14px;
+    top: 10px;
+    width: 16px;
+    height: 16px;
+    color: var(--accent);
+    font-size: 22px;
+    line-height: 1;
+}
+
+.ufo-tip-list strong {
+    color: var(--accent-dark);
+    margin-right: 4px;
+}
+
+/* 闂搴撶鐞?*/
+.ufo-library-stats {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ufo-library-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+}
+
+.ufo-library-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: #fffaf3;
+    box-shadow: 0 12px 26px rgba(61, 43, 24, 0.06);
+}
+
+.ufo-library-card.is-inactive {
+    opacity: 0.68;
+    background: #f7f1e7;
+}
+
+.ufo-library-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.ufo-library-card .stack-form {
+    gap: 10px;
+}
+
+.ufo-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.ufo-toggle-form {
+    margin: 0;
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 4px;
+    border-top: 1px dashed var(--line);
+}
+
+.ufo-toggle-btn {
+    appearance: none;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.ufo-toggle-btn.is-danger {
+    color: #8c2a1b;
+    border-color: rgba(140, 42, 27, 0.28);
+}
+
+.ufo-toggle-btn.is-danger:hover {
+    background: #fdecea;
+    border-color: rgba(140, 42, 27, 0.48);
+}
+
+.ufo-toggle-btn.is-revive {
+    color: #2f6d49;
+    border-color: rgba(47, 109, 73, 0.3);
+}
+
+.ufo-toggle-btn.is-revive:hover {
+    background: #edf8f1;
+    border-color: rgba(47, 109, 73, 0.5);
+}
+
+@media (max-width: 1100px) {
+    .ufo-field-grid.four {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 900px) {
+    .ufo-admin-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .ufo-primary {
+        padding: 20px;
+    }
+
+    .ufo-submit {
+        width: 100%;
+    }
+}
+
+@media (max-width: 640px) {
+    .ufo-field-grid.four {
+        grid-template-columns: 1fr;
+    }
+
+    .ufo-issue-grid,
+    .ufo-library-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .ufo-form-footer {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+/* ===== 闂鍙嶉搴?路 鎶樺彔鍒楄〃 ===== */
+.ufo-library-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 10px;
+}
+
+.ufo-library-item {
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: #fffaf3;
+    box-shadow: 0 8px 18px rgba(61, 43, 24, 0.05);
+    overflow: hidden;
+    transition: box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.ufo-library-item:hover {
+    border-color: rgba(184, 87, 45, 0.32);
+    box-shadow: 0 12px 26px rgba(61, 43, 24, 0.10);
+}
+
+.ufo-library-item.is-inactive {
+    background: #f4ede0;
+    opacity: 0.78;
+}
+
+.ufo-library-details {
+    width: 100%;
+}
+
+.ufo-library-details > summary::-webkit-details-marker {
+    display: none;
+}
+
+.ufo-library-summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 18px;
+    user-select: none;
+}
+
+.ufo-library-summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: 14px;
+}
+
+.ufo-library-summary-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.ufo-library-summary-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ufo-library-item.is-inactive .ufo-library-summary-title {
+    color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-color: rgba(125, 111, 96, 0.5);
+}
+
+.ufo-library-summary-meta {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex: 0 0 auto;
+}
+
+.ufo-library-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(184, 87, 45, 0.10);
+    border: 1px solid rgba(184, 87, 45, 0.22);
+    color: var(--accent-dark);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.ufo-library-summary:hover .ufo-library-toggle {
+    background: rgba(184, 87, 45, 0.16);
+    border-color: rgba(184, 87, 45, 0.34);
+}
+
+.ufo-library-toggle-icon {
+    width: 10px;
+    height: 10px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.18s ease;
+}
+
+.ufo-library-details[open] .ufo-library-toggle-icon {
+    transform: rotate(-135deg);
+}
+
+.ufo-library-toggle-text::before {
+    content: attr(data-closed);
+}
+
+.ufo-library-details[open] .ufo-library-toggle-text::before {
+    content: attr(data-open);
+}
+
+.ufo-library-details[open] .ufo-library-summary {
+    border-bottom: 1px dashed var(--line);
+    background: rgba(184, 87, 45, 0.04);
+}
+
+.ufo-library-body {
+    padding: 18px;
+    display: grid;
+    gap: 14px;
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.ufo-library-body .ufo-toggle-form {
+    margin: 0;
+    padding-top: 10px;
+}
+
+@media (max-width: 640px) {
+    .ufo-library-summary {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .ufo-library-summary-meta {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .ufo-library-summary-title {
+        white-space: normal;
+    }
+}
+

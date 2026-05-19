@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>做账单</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <main class="shell">
+        <section class="topbar">
+            <div>
+                <p class="eyebrow">做账单</p>
+                <h1>上传账单资料</h1>
+                <p class="lead">需要的文件：空白账单格式、派送单文件、单页账单文件、Flex 的 Tan# 总表。</p>
+            </div>
+            <div class="actions">
+                <a class="secondary-btn" href="/">返回首页</a>
+            </div>
+        </section>
+
+        <section class="panel upload-panel">
+            <form action="/process" method="post" enctype="multipart/form-data" class="upload-form">
+                <label class="field">
+                    <span>空白账单格式</span>
+                    <input type="file" name="master_file" accept=".xlsx" required>
+                </label>
+                <label class="field">
+                    <span>派送单文件</span>
+                    <input type="file" name="delivery_note_files" accept=".xlsx,.xls" multiple>
+                </label>
+                <label class="field">
+                    <span>单页账单文件</span>
+                    <input type="file" name="invoice_files" accept=".xlsx" multiple required>
+                </label>
+                <label class="field">
+                    <span>Flex 的 Tan# 总表（数据来源）</span>
+                    <input type="file" name="source_files" accept=".xls,.xlsx" multiple>
+                </label>
+                <button type="submit" class="primary-btn">生成账单预览</button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>
