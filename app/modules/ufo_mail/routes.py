@@ -7,14 +7,14 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 
 from app.modules.ufo_mail import repository
 from app.modules.ufo_mail.schemas import UfoIssueInput
-from app.modules.ufo_mail.service import generate_mail, import_signature
+from app.modules.ufo_mail.service import clear_output_cache, generate_mail, import_signature
 from app.web.templates import templates
 
 
 router = APIRouter()
 
 
-def build_ufo_context(error: str = "") -> dict[str, Any]:
+def build_ufo_context(error: str = "", notice: str = "") -> dict[str, Any]:
     issues = repository.list_ufo_issues(include_inactive=True)
     return {
         "issues": issues,
@@ -22,12 +22,22 @@ def build_ufo_context(error: str = "") -> dict[str, Any]:
         "mail_settings": repository.get_ufo_mail_settings(),
         "signature_settings": repository.get_ufo_signature_settings(),
         "error": error,
+        "notice": notice,
     }
 
 
 @router.get("/modules/ufo-mail", response_class=HTMLResponse)
 async def ufo_mail_page(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "ufo_mail.html", build_ufo_context())
+    notice = ""
+    if request.query_params.get("cache_cleared") == "1":
+        notice = "输出缓存已清理。"
+    return templates.TemplateResponse(request, "ufo_mail.html", build_ufo_context(notice=notice))
+
+
+@router.post("/modules/ufo-mail/cache/clear")
+async def clear_ufo_mail_output_cache() -> dict[str, int | bool]:
+    result = clear_output_cache()
+    return {"ok": True, **result}
 
 
 @router.post("/modules/ufo-mail/issues")

@@ -23,6 +23,15 @@ def test_main_pages_open() -> None:
         assert response.status_code == 200, path
 
 
+def test_ufo_mail_cache_button_renders_chinese_text() -> None:
+    client = TestClient(main_app)
+    response = client.get("/modules/ufo-mail")
+
+    assert response.status_code == 200
+    assert "清理输出缓存" in response.text
+    assert "????" not in response.text
+
+
 def test_booking_standalone_entry_opens() -> None:
     client = TestClient(booking_app, follow_redirects=False)
     response = client.get("/")

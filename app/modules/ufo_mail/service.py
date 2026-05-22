@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Sequence
 
 from fastapi import UploadFile
 
-from app.core.paths import OUTPUT_DIR
+from app.core.paths import APP_DIR, OUTPUT_DIR
+from app.modules.ufo_mail.cover_processor import is_supported_ufo_document
 from app.modules.ufo_mail.rules import detect_ufo_no
 from app.shared.uploads import save_upload
 from app.modules.ufo_mail.legacy_adapter import (
@@ -18,6 +23,12 @@ from app.modules.ufo_mail.legacy_adapter import (
 )
 
 
+YOLO_PYTHON_CANDIDATES = [
+    APP_DIR / ".venv-yolo" / "Scripts" / "python.exe",
+    APP_DIR / ".venv-yolo" / "bin" / "python",
+]
+
+
 def safe_ufo_output_stem(value: str) -> str:
     text = (value or "").strip()
     match = re.search(r"\bUFO\d{6,}\b", text, flags=re.IGNORECASE)
@@ -25,6 +36,158 @@ def safe_ufo_output_stem(value: str) -> str:
         return match.group(0).upper()
     safe = re.sub(r"[^A-Za-z0-9_-]+", "_", text).strip("_")
     return safe[:80] or "ufo_mail"
+
+
+def unique_filename(filename: str, used_names: set[str]) -> str:
+    path = Path(filename)
+    stem = path.stem or "attachment"
+    suffix = path.suffix
+    candidate = filename
+    index = 2
+    while candidate.lower() in used_names:
+        candidate = f"{stem}_{index}{suffix}"
+        index += 1
+    used_names.add(candidate.lower())
+    return candidate
+
+
+def resolve_yolo_python() -> Path:
+    for candidate in YOLO_PYTHON_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return Path(sys.executable)
+
+
+def clear_output_cache() -> dict[str, int]:
+    output_dir = OUTPUT_DIR.resolve()
+    runtime_dir = (APP_DIR / "runtime").resolve()
+    if output_dir.name != "outputs" or output_dir.parent != runtime_dir:
+        raise ValueError("输出缓存目录校验失败，已停止清理。")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    deleted_files = 0
+    deleted_dirs = 0
+    for item in output_dir.iterdir():
+        if item.is_symlink():
+            item.unlink()
+            deleted_files += 1
+            continue
+        is_junction = getattr(item, "is_junction", lambda: False)()
+        if is_junction:
+            item.rmdir()
+            deleted_dirs += 1
+            continue
+        if item.is_dir():
+            shutil.rmtree(item)
+            deleted_dirs += 1
+        else:
+            item.unlink()
+            deleted_files += 1
+    return {"deleted_files": deleted_files, "deleted_dirs": deleted_dirs}
+
+
+def run_ufo_cover_processor(
+    *,
+    input_path: Path,
+    output_pdf: Path,
+    ufo_no: str,
+    report_json: Path,
+    report_csv: Path,
+    preview_dir: Path,
+    result_json: Path,
+) -> dict[str, object]:
+    python_exe = resolve_yolo_python()
+    command = [
+        str(python_exe),
+        "-m",
+        "app.modules.ufo_mail.cover_processor",
+        str(input_path),
+        str(output_pdf),
+        "--ufo-no",
+        ufo_no,
+        "--report-json",
+        str(report_json),
+        "--report-csv",
+        str(report_csv),
+        "--preview-dir",
+        str(preview_dir),
+        "--result-json",
+        str(result_json),
+    ]
+    completed = subprocess.run(
+        command,
+        cwd=APP_DIR,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=600,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "unknown error").strip()
+        raise ValueError(f"UFO PDF 自动遮盖失败：{detail[-1200:]}")
+    if not result_json.exists():
+        raise ValueError("UFO PDF 自动遮盖失败：未生成处理结果。")
+    return json.loads(result_json.read_text(encoding="utf-8"))
+
+
+def prepare_ufo_attachments(
+    *,
+    session_id: str,
+    saved_attachments: Sequence[UfoAttachment],
+    ufo_no: str,
+) -> list[UfoAttachment]:
+    output_dir = OUTPUT_DIR / "ufo_processed" / session_id
+    used_names: set[str] = set()
+    prepared: list[UfoAttachment] = []
+    processed_index = 0
+    review_reports: list[str] = []
+
+    has_coverable_document = any(is_supported_ufo_document(item.path) for item in saved_attachments)
+    has_pdf_document = any(item.path.suffix.lower() == ".pdf" for item in saved_attachments)
+    if has_coverable_document and not ufo_no.strip():
+        raise ValueError("请手工输入 UFO 编号；TIF/PDF 自动遮盖需要用这个编号替换首页 RH 编号。")
+
+    for attachment in saved_attachments:
+        if not is_supported_ufo_document(attachment.path):
+            prepared.append(
+                UfoAttachment(
+                    path=attachment.path,
+                    filename=unique_filename(attachment.filename, used_names),
+                )
+            )
+            continue
+
+        if has_pdf_document and attachment.path.suffix.lower() in {".tif", ".tiff"}:
+            continue
+
+        processed_index += 1
+        stem = safe_ufo_output_stem(ufo_no)
+        output_filename = unique_filename(f"{stem}.pdf" if processed_index == 1 else f"{stem}_{processed_index}.pdf", used_names)
+        output_pdf = output_dir / output_filename
+        report_json = output_dir / f"{Path(output_filename).stem}.cover_report.json"
+        report_csv = output_dir / f"{Path(output_filename).stem}.cover_report.csv"
+        result_json = output_dir / f"{Path(output_filename).stem}.result.json"
+        preview_dir = output_dir / f"{Path(output_filename).stem}_preview"
+        result = run_ufo_cover_processor(
+            input_path=attachment.path,
+            output_pdf=output_pdf,
+            ufo_no=ufo_no,
+            report_json=report_json,
+            report_csv=report_csv,
+            preview_dir=preview_dir,
+            result_json=result_json,
+        )
+        review_count = int(result.get("review_count") or 0)
+        if review_count:
+            review_reports.append(str(report_csv))
+        prepared.append(UfoAttachment(path=output_pdf, filename=output_filename))
+
+    if review_reports:
+        joined = "；".join(review_reports)
+        raise ValueError(f"检测到低置信度 RH 候选框，需要先人工复核。报告：{joined}")
+    return prepared
 
 
 def import_signature(signature_file: UploadFile, marker: str) -> None:
@@ -50,7 +213,13 @@ def generate_mail(
         saved_path = save_upload(session_id, attachment, f"ufo_attachment_{idx:03d}")
         saved_attachments.append(UfoAttachment(path=saved_path, filename=attachment.filename))
 
-    detected_ufo_no = ufo_no.strip() or detect_ufo_no([item.filename for item in saved_attachments])
+    manual_ufo_no = ufo_no.strip()
+    detected_ufo_no = manual_ufo_no or detect_ufo_no([item.filename for item in saved_attachments])
+    final_attachments = prepare_ufo_attachments(
+        session_id=session_id,
+        saved_attachments=saved_attachments,
+        ufo_no=manual_ufo_no,
+    )
     output_stem = safe_ufo_output_stem(detected_ufo_no)
     output_name = f"{output_stem}_{session_id}.eml"
     output_path = OUTPUT_DIR / output_name
@@ -63,7 +232,7 @@ def generate_mail(
             cc_email=cc_email,
             from_email=from_email,
             issue_ids=issue_ids,
-            attachments=saved_attachments,
+            attachments=final_attachments,
         ),
         output_path,
     )

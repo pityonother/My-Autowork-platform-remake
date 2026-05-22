@@ -27,6 +27,13 @@
         <span class="ufo-alert-message">{{ error }}</span>
     </div>
     {% endif %}
+    {% if notice %}
+    <div class="ufo-alert is-success" role="status">
+        <span class="ufo-alert-label">操作完成</span>
+        <span class="ufo-alert-message">{{ notice }}</span>
+    </div>
+    {% endif %}
+
 
     <section class="panel ufo-primary" id="generate">
         <header class="ufo-section-head">
@@ -109,7 +116,10 @@
 
             <div class="ufo-form-footer">
                 <p class="hint">点击生成后，浏览器会直接下载 <code>.eml</code> 文件，用 Outlook 等客户端打开即可。</p>
-                <button type="submit" class="primary-btn ufo-submit">生成 eml 邮件</button>
+                <div class="ufo-footer-actions">
+                    <button type="button" class="ufo-cache-clear" id="ufo-clear-cache-btn">清理输出缓存</button>
+                    <button type="submit" class="primary-btn ufo-submit">生成 eml 邮件</button>
+                </div>
             </div>
         </form>
     </section>
@@ -278,6 +288,35 @@
     var fileList = document.getElementById('ufo-file-list');
     var fileSummary = document.getElementById('ufo-file-summary');
     var dropzone = document.getElementById('ufo-dropzone');
+    var clearCacheBtn = document.getElementById('ufo-clear-cache-btn');
+
+    if (clearCacheBtn) {
+        clearCacheBtn.addEventListener('click', function () {
+            if (!window.confirm('确定删除 runtime/outputs 里的所有输出缓存吗？已生成的 eml、PDF、预览 PNG 都会被删除。')) {
+                return;
+            }
+
+            var originalText = clearCacheBtn.textContent;
+            clearCacheBtn.disabled = true;
+            clearCacheBtn.textContent = '正在清理...';
+
+            fetch('/modules/ufo-mail/cache/clear', { method: 'POST' })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('清理失败');
+                    }
+                    return response.json();
+                })
+                .then(function () {
+                    window.location.href = '/modules/ufo-mail?cache_cleared=1#generate';
+                })
+                .catch(function () {
+                    window.alert('清理输出缓存失败，请稍后重试。');
+                    clearCacheBtn.disabled = false;
+                    clearCacheBtn.textContent = originalText;
+                });
+        });
+    }
 
     function updateIssueCount() {
         if (!countEl) return;

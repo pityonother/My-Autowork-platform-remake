@@ -11,7 +11,7 @@ def test_no_duplicate_top_level_function_names() -> None:
     source_files = [
         path
         for path in project_root.rglob("*.py")
-        if ".venv" not in path.parts and "__pycache__" not in path.parts
+        if not any(part.startswith(".venv") for part in path.parts) and "__pycache__" not in path.parts
     ]
     for path in source_files:
         relative_path = path.relative_to(project_root).as_posix()
