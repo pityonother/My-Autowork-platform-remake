@@ -27,6 +27,30 @@
         <span class="ufo-alert-message">{{ error }}</span>
     </div>
     {% endif %}
+    {% if review_context %}
+    <section class="ufo-review-panel" role="region" aria-label="低置信度复核">
+        <div>
+            <h2>需要确认低置信度候选框</h2>
+            <p class="hint">请先打开报告或预览图确认这些候选框不是 RH 标签。确认后，系统会忽略 0.50-0.70 的候选框，只保留已自动遮盖的高置信度结果继续生成邮件。</p>
+            <ul class="ufo-review-report-list">
+                {% for report in review_context.review_reports %}
+                <li><code>{{ report }}</code></li>
+                {% endfor %}
+            </ul>
+        </div>
+        <form action="/modules/ufo-mail/generate/confirm-review" method="post" class="ufo-review-confirm-form">
+            <input type="hidden" name="session_id" value="{{ review_context.session_id }}">
+            <input type="hidden" name="ufo_no" value="{{ review_context.ufo_no }}">
+            <input type="hidden" name="to_email" value="{{ review_context.to_email }}">
+            <input type="hidden" name="cc_email" value="{{ review_context.cc_email }}">
+            <input type="hidden" name="from_email" value="{{ review_context.from_email }}">
+            {% for issue_id in review_context.issue_ids %}
+            <input type="hidden" name="issue_ids" value="{{ issue_id }}">
+            {% endfor %}
+            <button type="submit" class="primary-btn ufo-review-confirm">确认忽略并继续生成 eml</button>
+        </form>
+    </section>
+    {% endif %}
     {% if notice %}
     <div class="ufo-alert is-success" role="status">
         <span class="ufo-alert-label">操作完成</span>
@@ -53,19 +77,19 @@
                 <div class="ufo-field-grid four">
                     <label class="field">
                         <span>UFO 号码</span>
-                        <input type="text" name="ufo_no" placeholder="UFO26042101" autocomplete="off">
+                        <input type="text" name="ufo_no" value="{{ form_state.ufo_no or '' }}" placeholder="UFO26042101" autocomplete="off">
                     </label>
                     <label class="field">
                         <span>收件人 To</span>
-                        <input type="text" name="to_email" value="{{ mail_settings.to_email }}" placeholder="customer@example.com" autocomplete="off">
+                        <input type="text" name="to_email" value="{{ form_state.to_email or mail_settings.to_email }}" placeholder="customer@example.com" autocomplete="off">
                     </label>
                     <label class="field">
                         <span>抄送 Cc</span>
-                        <input type="text" name="cc_email" value="{{ mail_settings.cc_email }}" placeholder="多个邮箱用逗号分隔" autocomplete="off">
+                        <input type="text" name="cc_email" value="{{ form_state.cc_email or mail_settings.cc_email }}" placeholder="多个邮箱用逗号分隔" autocomplete="off">
                     </label>
                     <label class="field">
                         <span>发件人 From</span>
-                        <input type="text" name="from_email" value="{{ mail_settings.from_email }}" placeholder="yourname@example.com" autocomplete="off">
+                        <input type="text" name="from_email" value="{{ form_state.from_email or mail_settings.from_email }}" placeholder="yourname@example.com" autocomplete="off">
                     </label>
                 </div>
                 <div class="ufo-memory-actions">
@@ -99,7 +123,7 @@
                 <div class="ufo-issue-grid">
                     {% for issue in active_issues %}
                     <label class="ufo-issue-tile">
-                        <input type="checkbox" name="issue_ids" value="{{ issue.id }}">
+                        <input type="checkbox" name="issue_ids" value="{{ issue.id }}" {% if issue.id in selected_issue_ids %}checked{% endif %}>
                         <span class="ufo-issue-indicator" aria-hidden="true"></span>
                         <span class="ufo-issue-body">
                             <span class="ufo-issue-cn">{{ issue.short_cn }}</span>

@@ -134,6 +134,7 @@ def test_generate_mail_does_not_use_filename_as_manual_ufo_no(monkeypatch, tmp_p
         raise AssertionError("cover processor should not run without a manual UFO number")
 
     monkeypatch.setattr(service, "OUTPUT_DIR", tmp_path / "outputs")
+    monkeypatch.setattr(service, "UPLOAD_DIR", tmp_path / "uploads")
     monkeypatch.setattr(service, "save_upload", fake_save_upload)
     monkeypatch.setattr(service, "run_ufo_cover_processor", fail_processor)
 
@@ -226,6 +227,76 @@ def test_prepare_ufo_attachments_blocks_low_confidence_review(monkeypatch, tmp_p
             ufo_no="UFO26052201",
         )
     except ValueError as exc:
-        assert "低置信度" in str(exc)
+        assert isinstance(exc, service.LowConfidenceReviewRequired)
+        assert exc.session_id == "abc123"
     else:
         raise AssertionError("Expected low-confidence review items to block mail generation")
+
+
+def test_prepare_ufo_attachments_allows_low_confidence_after_confirmation(monkeypatch, tmp_path) -> None:
+    from app.modules.ufo_mail import service
+
+    def fake_processor(**kwargs):
+        kwargs["output_pdf"].parent.mkdir(parents=True, exist_ok=True)
+        kwargs["output_pdf"].write_bytes(b"%PDF-1.4\n")
+        kwargs["report_csv"].write_text("page,decision\n2,review_only\n", encoding="utf-8")
+        kwargs["result_json"].write_text("{}", encoding="utf-8")
+        return {"review_count": 1}
+
+    monkeypatch.setattr(service, "OUTPUT_DIR", tmp_path / "outputs")
+    monkeypatch.setattr(service, "run_ufo_cover_processor", fake_processor)
+    attachment = UfoAttachment(path=tmp_path / "RH2603126.pdf", filename="RH2603126.pdf")
+
+    result = service.prepare_ufo_attachments(
+        session_id="abc123",
+        saved_attachments=[attachment],
+        ufo_no="UFO26052201",
+        allow_low_confidence=True,
+    )
+
+    assert [item.filename for item in result] == ["UFO26052201.pdf"]
+    assert result[0].path.exists()
+
+
+def test_generate_mail_from_saved_session_reuses_uploads_after_review_confirmation(monkeypatch, tmp_path) -> None:
+    from app.modules.ufo_mail import service
+
+    session_id = "abc123def456"
+    upload_dir = tmp_path / "uploads"
+    output_dir = tmp_path / "outputs"
+    uploaded_pdf = upload_dir / session_id / "ufo_attachment_001_RH2603126.pdf"
+    uploaded_pdf.parent.mkdir(parents=True)
+    uploaded_pdf.write_bytes(b"%PDF-1.4\n")
+
+    def fake_processor(**kwargs):
+        kwargs["output_pdf"].parent.mkdir(parents=True, exist_ok=True)
+        kwargs["output_pdf"].write_bytes(b"%PDF-1.4\n")
+        kwargs["report_csv"].write_text("page,decision\n2,review_only\n", encoding="utf-8")
+        kwargs["result_json"].write_text("{}", encoding="utf-8")
+        return {"review_count": 1}
+
+    def fake_generate_ufo_eml(input_data, output_path: Path) -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(",".join(item.filename for item in input_data.attachments), encoding="utf-8")
+
+    monkeypatch.setattr(service, "UPLOAD_DIR", upload_dir)
+    monkeypatch.setattr(service, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(service, "run_ufo_cover_processor", fake_processor)
+    monkeypatch.setattr(service, "generate_ufo_eml", fake_generate_ufo_eml)
+    service.save_attachment_metadata(
+        session_id,
+        [UfoAttachment(path=uploaded_pdf, filename="RH2603126.pdf")],
+    )
+
+    output_path = service.generate_mail_from_saved_session(
+        session_id=session_id,
+        issue_ids=[1],
+        ufo_no="UFO26052201",
+        to_email="to@example.com",
+        cc_email="",
+        from_email="from@example.com",
+        allow_low_confidence=True,
+    )
+
+    assert output_path.name == f"UFO26052201_{session_id}.eml"
+    assert output_path.read_text(encoding="utf-8") == "UFO26052201.pdf"

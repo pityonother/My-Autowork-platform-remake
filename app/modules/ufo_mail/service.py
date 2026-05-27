@@ -11,7 +11,7 @@ from typing import Sequence
 
 from fastapi import UploadFile
 
-from app.core.paths import APP_DIR, OUTPUT_DIR
+from app.core.paths import APP_DIR, OUTPUT_DIR, UPLOAD_DIR
 from app.modules.ufo_mail.cover_processor import is_supported_ufo_document
 from app.modules.ufo_mail.rules import detect_ufo_no
 from app.shared.uploads import save_upload
@@ -27,6 +27,15 @@ YOLO_PYTHON_CANDIDATES = [
     APP_DIR / ".venv-yolo" / "Scripts" / "python.exe",
     APP_DIR / ".venv-yolo" / "bin" / "python",
 ]
+ATTACHMENT_METADATA_FILENAME = "_ufo_attachments.json"
+
+
+class LowConfidenceReviewRequired(ValueError):
+    def __init__(self, *, session_id: str, review_reports: Sequence[str]) -> None:
+        self.session_id = session_id
+        self.review_reports = list(review_reports)
+        joined = "；".join(self.review_reports)
+        super().__init__(f"检测到低置信度 RH 候选框，需要先人工复核。报告：{joined}")
 
 
 def safe_ufo_output_stem(value: str) -> str:
@@ -56,6 +65,54 @@ def resolve_yolo_python() -> Path:
         if candidate.exists():
             return candidate
     return Path(sys.executable)
+
+
+def validate_session_id(session_id: str) -> str:
+    session_id = session_id.strip()
+    if not re.fullmatch(r"[0-9a-f]{12}", session_id):
+        raise ValueError("UFO 处理会话编号不合法，请重新生成。")
+    return session_id
+
+
+def attachment_metadata_path(session_id: str) -> Path:
+    return UPLOAD_DIR / validate_session_id(session_id) / ATTACHMENT_METADATA_FILENAME
+
+
+def save_attachment_metadata(session_id: str, saved_attachments: Sequence[UfoAttachment]) -> None:
+    metadata_path = attachment_metadata_path(session_id)
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = [
+        {
+            "path": str(attachment.path),
+            "filename": attachment.filename,
+        }
+        for attachment in saved_attachments
+    ]
+    metadata_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_attachment_metadata(session_id: str) -> list[UfoAttachment]:
+    session_id = validate_session_id(session_id)
+    metadata_path = attachment_metadata_path(session_id)
+    if not metadata_path.exists():
+        raise ValueError("找不到上一次上传的附件记录，请重新选择附件生成。")
+
+    upload_session_dir = (UPLOAD_DIR / session_id).resolve()
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("附件记录无法读取，请重新选择附件生成。") from exc
+
+    attachments: list[UfoAttachment] = []
+    for item in payload:
+        path = Path(str(item.get("path", ""))).resolve()
+        filename = str(item.get("filename", "")).strip()
+        if not path.is_relative_to(upload_session_dir):
+            raise ValueError("附件记录路径不合法，请重新选择附件生成。")
+        if not path.exists():
+            raise ValueError("找不到上一次上传的附件文件，请重新选择附件生成。")
+        attachments.append(UfoAttachment(path=path, filename=filename or path.name))
+    return attachments
 
 
 def clear_output_cache() -> dict[str, int]:
@@ -137,6 +194,7 @@ def prepare_ufo_attachments(
     session_id: str,
     saved_attachments: Sequence[UfoAttachment],
     ufo_no: str,
+    allow_low_confidence: bool = False,
 ) -> list[UfoAttachment]:
     output_dir = OUTPUT_DIR / "ufo_processed" / session_id
     used_names: set[str] = set()
@@ -184,10 +242,71 @@ def prepare_ufo_attachments(
             review_reports.append(str(report_csv))
         prepared.append(UfoAttachment(path=output_pdf, filename=output_filename))
 
-    if review_reports:
-        joined = "；".join(review_reports)
-        raise ValueError(f"检测到低置信度 RH 候选框，需要先人工复核。报告：{joined}")
+    if review_reports and not allow_low_confidence:
+        raise LowConfidenceReviewRequired(session_id=session_id, review_reports=review_reports)
     return prepared
+
+
+def generate_mail_from_saved_attachments(
+    *,
+    session_id: str,
+    saved_attachments: Sequence[UfoAttachment],
+    issue_ids: Sequence[int],
+    ufo_no: str,
+    to_email: str,
+    cc_email: str,
+    from_email: str,
+    allow_low_confidence: bool = False,
+) -> Path:
+    manual_ufo_no = ufo_no.strip()
+    detected_ufo_no = manual_ufo_no or detect_ufo_no([item.filename for item in saved_attachments])
+    final_attachments = prepare_ufo_attachments(
+        session_id=session_id,
+        saved_attachments=saved_attachments,
+        ufo_no=manual_ufo_no,
+        allow_low_confidence=allow_low_confidence,
+    )
+    output_stem = safe_ufo_output_stem(detected_ufo_no)
+    output_name = f"{output_stem}_{session_id}.eml"
+    output_path = OUTPUT_DIR / output_name
+    if not output_path.resolve().is_relative_to(OUTPUT_DIR.resolve()):
+        raise ValueError("输出文件名不合法。")
+    generate_ufo_eml(
+        UfoMailInput(
+            ufo_no=detected_ufo_no,
+            to_email=to_email,
+            cc_email=cc_email,
+            from_email=from_email,
+            issue_ids=issue_ids,
+            attachments=final_attachments,
+        ),
+        output_path,
+    )
+    return output_path
+
+
+def generate_mail_from_saved_session(
+    *,
+    session_id: str,
+    issue_ids: Sequence[int],
+    ufo_no: str,
+    to_email: str,
+    cc_email: str,
+    from_email: str,
+    allow_low_confidence: bool = False,
+) -> Path:
+    session_id = validate_session_id(session_id)
+    saved_attachments = load_attachment_metadata(session_id)
+    return generate_mail_from_saved_attachments(
+        session_id=session_id,
+        saved_attachments=saved_attachments,
+        issue_ids=issue_ids,
+        ufo_no=ufo_no,
+        to_email=to_email,
+        cc_email=cc_email,
+        from_email=from_email,
+        allow_low_confidence=allow_low_confidence,
+    )
 
 
 def import_signature(signature_file: UploadFile, marker: str) -> None:
@@ -214,26 +333,13 @@ def generate_mail(
         saved_attachments.append(UfoAttachment(path=saved_path, filename=attachment.filename))
 
     manual_ufo_no = ufo_no.strip()
-    detected_ufo_no = manual_ufo_no or detect_ufo_no([item.filename for item in saved_attachments])
-    final_attachments = prepare_ufo_attachments(
+    save_attachment_metadata(session_id, saved_attachments)
+    return generate_mail_from_saved_attachments(
         session_id=session_id,
         saved_attachments=saved_attachments,
+        issue_ids=issue_ids,
         ufo_no=manual_ufo_no,
+        to_email=to_email,
+        cc_email=cc_email,
+        from_email=from_email,
     )
-    output_stem = safe_ufo_output_stem(detected_ufo_no)
-    output_name = f"{output_stem}_{session_id}.eml"
-    output_path = OUTPUT_DIR / output_name
-    if not output_path.resolve().is_relative_to(OUTPUT_DIR.resolve()):
-        raise ValueError("输出文件名不合法。")
-    generate_ufo_eml(
-        UfoMailInput(
-            ufo_no=detected_ufo_no,
-            to_email=to_email,
-            cc_email=cc_email,
-            from_email=from_email,
-            issue_ids=issue_ids,
-            attachments=final_attachments,
-        ),
-        output_path,
-    )
-    return output_path

@@ -151,6 +151,53 @@
     color: #2f6d49;
 }
 
+.ufo-review-panel {
+    margin: -8px 0 22px;
+    padding: 18px 20px;
+    border: 1px solid #e1bd84;
+    border-radius: 18px;
+    background: #fff8ea;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+}
+
+.ufo-review-panel h2 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    color: #77440f;
+}
+
+.ufo-review-panel .hint {
+    max-width: 880px;
+    color: #775c36;
+}
+
+.ufo-review-report-list {
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 6px;
+}
+
+.ufo-review-report-list code {
+    display: inline-block;
+    max-width: min(100%, 900px);
+    overflow-wrap: anywhere;
+    color: #773c12;
+}
+
+.ufo-review-confirm-form {
+    flex: 0 0 auto;
+}
+
+.ufo-review-confirm {
+    white-space: nowrap;
+}
+
 .ufo-section-head {
     display: flex;
     justify-content: space-between;

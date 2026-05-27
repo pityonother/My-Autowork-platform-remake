@@ -7,15 +7,27 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Resp
 
 from app.modules.ufo_mail import repository
 from app.modules.ufo_mail.schemas import UfoIssueInput
-from app.modules.ufo_mail.service import clear_output_cache, generate_mail, import_signature
+from app.modules.ufo_mail.service import (
+    LowConfidenceReviewRequired,
+    clear_output_cache,
+    generate_mail,
+    generate_mail_from_saved_session,
+    import_signature,
+)
 from app.web.templates import templates
 
 
 router = APIRouter()
 
 
-def build_ufo_context(error: str = "", notice: str = "") -> dict[str, Any]:
+def build_ufo_context(
+    error: str = "",
+    notice: str = "",
+    form_state: dict[str, Any] | None = None,
+    review_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     issues = repository.list_ufo_issues(include_inactive=True)
+    form_state = form_state or {}
     return {
         "issues": issues,
         "active_issues": [issue for issue in issues if issue["is_active"]],
@@ -23,6 +35,34 @@ def build_ufo_context(error: str = "", notice: str = "") -> dict[str, Any]:
         "signature_settings": repository.get_ufo_signature_settings(),
         "error": error,
         "notice": notice,
+        "form_state": form_state,
+        "selected_issue_ids": form_state.get("issue_ids", []),
+        "review_context": review_context,
+    }
+
+
+def build_form_state(
+    *,
+    issue_ids: list[int],
+    ufo_no: str,
+    to_email: str,
+    cc_email: str,
+    from_email: str,
+) -> dict[str, Any]:
+    return {
+        "issue_ids": issue_ids,
+        "ufo_no": ufo_no,
+        "to_email": to_email,
+        "cc_email": cc_email,
+        "from_email": from_email,
+    }
+
+
+def build_review_context(exc: LowConfidenceReviewRequired, form_state: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "session_id": exc.session_id,
+        "review_reports": exc.review_reports,
+        **form_state,
     }
 
 
@@ -105,6 +145,13 @@ async def generate_ufo_mail(
     from_email: str = Form(default=""),
 ) -> Response:
     repository.save_ufo_mail_settings(to_email=to_email, cc_email=cc_email, from_email=from_email)
+    form_state = build_form_state(
+        issue_ids=issue_ids,
+        ufo_no=ufo_no,
+        to_email=to_email,
+        cc_email=cc_email,
+        from_email=from_email,
+    )
     try:
         output_path = generate_mail(
             issue_ids=issue_ids,
@@ -114,11 +161,60 @@ async def generate_ufo_mail(
             cc_email=cc_email,
             from_email=from_email,
         )
+    except LowConfidenceReviewRequired as exc:
+        return templates.TemplateResponse(
+            request,
+            "ufo_mail.html",
+            build_ufo_context(
+                str(exc),
+                form_state=form_state,
+                review_context=build_review_context(exc, form_state),
+            ),
+            status_code=400,
+        )
     except Exception as exc:  # noqa: BLE001
         return templates.TemplateResponse(
             request,
             "ufo_mail.html",
-            build_ufo_context(str(exc)),
+            build_ufo_context(str(exc), form_state=form_state),
+            status_code=400,
+        )
+    return FileResponse(output_path, media_type="message/rfc822", filename=output_path.name)
+
+
+@router.post("/modules/ufo-mail/generate/confirm-review", response_model=None)
+async def confirm_ufo_mail_low_confidence_review(
+    request: Request,
+    session_id: str = Form(...),
+    issue_ids: list[int] = Form(default=[]),
+    ufo_no: str = Form(default=""),
+    to_email: str = Form(default=""),
+    cc_email: str = Form(default=""),
+    from_email: str = Form(default=""),
+) -> Response:
+    repository.save_ufo_mail_settings(to_email=to_email, cc_email=cc_email, from_email=from_email)
+    form_state = build_form_state(
+        issue_ids=issue_ids,
+        ufo_no=ufo_no,
+        to_email=to_email,
+        cc_email=cc_email,
+        from_email=from_email,
+    )
+    try:
+        output_path = generate_mail_from_saved_session(
+            session_id=session_id,
+            issue_ids=issue_ids,
+            ufo_no=ufo_no,
+            to_email=to_email,
+            cc_email=cc_email,
+            from_email=from_email,
+            allow_low_confidence=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return templates.TemplateResponse(
+            request,
+            "ufo_mail.html",
+            build_ufo_context(str(exc), form_state=form_state),
             status_code=400,
         )
     return FileResponse(output_path, media_type="message/rfc822", filename=output_path.name)

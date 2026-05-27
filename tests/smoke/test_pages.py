@@ -32,6 +32,35 @@ def test_ufo_mail_cache_button_renders_chinese_text() -> None:
     assert "????" not in response.text
 
 
+def test_ufo_mail_low_confidence_review_confirmation_renders(monkeypatch) -> None:
+    from app.modules.ufo_mail import routes
+
+    def fake_generate_mail(**kwargs):
+        raise routes.LowConfidenceReviewRequired(
+            session_id="abc123def456",
+            review_reports=[r"C:\runtime\outputs\ufo.cover_report.csv"],
+        )
+
+    monkeypatch.setattr(routes, "generate_mail", fake_generate_mail)
+    client = TestClient(main_app)
+    response = client.post(
+        "/modules/ufo-mail/generate",
+        data={
+            "ufo_no": "UFO26052203",
+            "to_email": "to@example.com",
+            "cc_email": "",
+            "from_email": "from@example.com",
+            "issue_ids": "1",
+        },
+        files=[("attachments", ("RH2600000.pdf", b"%PDF-1.4\n", "application/pdf"))],
+    )
+
+    assert response.status_code == 400
+    assert "/modules/ufo-mail/generate/confirm-review" in response.text
+    assert 'name="session_id" value="abc123def456"' in response.text
+    assert 'name="ufo_no" value="UFO26052203"' in response.text
+
+
 def test_booking_standalone_entry_opens() -> None:
     client = TestClient(booking_app, follow_redirects=False)
     response = client.get("/")
