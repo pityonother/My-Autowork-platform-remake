@@ -6,14 +6,14 @@ from fastapi import APIRouter, FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.core.paths import APP_DIR, OUTPUT_DIR, STATIC_DIR, TEMPLATES_DIR, UPLOAD_DIR
+from app.core.paths import OUTPUT_DIR, RUNTIME_DIR, STATIC_DIR, TEMPLATES_DIR, UPLOAD_DIR
 
 
 DatabaseInitializer = Callable[[], None]
 
 
 def ensure_runtime_dirs() -> None:
-    for path in [UPLOAD_DIR, OUTPUT_DIR, APP_DIR]:
+    for path in [RUNTIME_DIR, UPLOAD_DIR, OUTPUT_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 

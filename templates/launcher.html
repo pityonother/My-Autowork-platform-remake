@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模块 Launcher</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/modules/launcher/styles.css">
+</head>
+<body>
+    <main class="shell launcher-shell">
+        <section class="launcher-head">
+            <div>
+                <p class="eyebrow">Local Launcher</p>
+                <h1>模块安装与更新</h1>
+                <p class="lead">同事电脑只需要保留这个 Launcher；每个业务模块会独立安装到本机 runtime，不覆盖用户数据。</p>
+            </div>
+            <form class="launcher-refresh" method="post" action="/launcher/refresh">
+                <button class="primary-btn" type="submit">刷新远端版本</button>
+            </form>
+        </section>
+
+        {% if message %}
+        <div class="launcher-notice success">{{ message }}</div>
+        {% endif %}
+        {% if error or manifest_error %}
+        <div class="launcher-notice error">{{ error or manifest_error }}</div>
+        {% endif %}
+
+        <section class="launcher-settings">
+            <form method="post" action="/launcher/settings">
+                <label class="field">
+                    manifest_url
+                    <input type="text" name="manifest_url" value="{{ manifest_url }}" placeholder="https://example.com/release_site/manifest.json 或 file:///C:/release_site/manifest.json">
+                </label>
+                <button class="secondary-btn" type="submit">保存更新地址</button>
+            </form>
+            <div class="launcher-meta">
+                <span>远端版本：{{ release_version }}</span>
+                <span>生成时间：{{ generated_at }}</span>
+                <span>数据目录：{{ runtime_dir }}</span>
+            </div>
+        </section>
+
+        <section class="launcher-grid">
+            {% for module in modules %}
+            <article class="launcher-card">
+                <div class="launcher-card-head">
+                    <div>
+                        <span class="module-state">{{ module.badge }}</span>
+                        <h2>{{ module.title }}</h2>
+                    </div>
+                    <span class="launcher-status launcher-status-{{ module.status_kind }}">{{ module.status }}</span>
+                </div>
+                <p class="module-subtitle">{{ module.subtitle }}</p>
+                <p class="module-description">{{ module.description }}</p>
+                <dl class="launcher-facts">
+                    <div><dt>安装状态</dt><dd>{{ module.installed_state }}</dd></div>
+                    <div><dt>本地版本</dt><dd>{{ module.installed_version }}</dd></div>
+                    <div><dt>远端最新</dt><dd>{{ module.remote_version }}</dd></div>
+                    <div><dt>进程状态</dt><dd>{{ '运行中' if module.is_running else '未运行' }}</dd></div>
+                </dl>
+                <div class="launcher-actions">
+                    {% if module.can_install %}
+                    <form method="post" action="/launcher/modules/{{ module.module_id }}/install">
+                        <button class="primary-btn small" type="submit">安装</button>
+                    </form>
+                    {% endif %}
+                    {% if module.can_update %}
+                    <form method="post" action="/launcher/modules/{{ module.module_id }}/update">
+                        <button class="primary-btn small" type="submit">更新</button>
+                    </form>
+                    {% endif %}
+                    {% if module.can_open %}
+                    <form method="post" action="/launcher/modules/{{ module.module_id }}/open">
+                        <button class="secondary-btn small" type="submit">打开</button>
+                    </form>
+                    {% endif %}
+                    {% if manifest_error %}
+                    <form method="post" action="/launcher/refresh">
+                        <button class="secondary-btn small" type="submit">重试</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        </section>
+    </main>
+</body>
+</html>

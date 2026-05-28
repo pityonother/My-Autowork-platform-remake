@@ -534,6 +534,7 @@ def parse_master_workbook(master: DispatchAttachment, output_dir: Path) -> list[
     gross_col = find_column(mapping, ["毛重KG", "毛重"])
     carton_col = find_column(mapping, ["箱数"])
     pallet_col = find_column(mapping, ["卡板数", "卡板"])
+    ship_mode_col = find_column(mapping, ["ship mode", "shipmode", "shipping mode", "运输方式", "出货方式"])
     remark_col = find_column(mapping, ["备注", "LOD ID", "包装尺寸"])
     if po_col is None or pallet_col is None:
         raise ValueError("Tan# 总表缺少 Customer PO 或 卡板数列，无法拆票。")
@@ -568,6 +569,7 @@ def parse_master_workbook(master: DispatchAttachment, output_dir: Path) -> list[
             remark=remark,
             item_col=item_col,
             po_col=po_col,
+            ship_mode_col=ship_mode_col,
             pcs_col=pcs_col,
             pallet_col=pallet_col,
             carton_col=carton_col,
@@ -590,21 +592,9 @@ def parse_master_workbook(master: DispatchAttachment, output_dir: Path) -> list[
             preview_rows=preview_rows,
             output_path=output_dir / f"ticket_{ticket_index}.png",
         )
-        email_start_col = item_col if item_col is not None else 0
-        email_end_col = pallet_col if pallet_col is not None else max(email_start_col, len(rows[header_row]) - 1)
-        if email_end_col < email_start_col:
-            email_start_col, email_end_col = email_end_col, email_start_col
-        ticket.email_image_path = render_master_ticket_image(
-            workbook_path=master.stored_path,
-            sheet_name=sheet_name,
-            rows=rows,
-            header_row=header_row,
-            start_row=detail_start,
-            end_row=tan_row,
-            start_col=email_start_col,
-            end_col=email_end_col,
+        ticket.email_image_path = render_ticket_snapshot_image(
             tan_no=tan_no,
-            tan_remark=remark,
+            preview_rows=preview_rows,
             output_path=output_dir / f"ticket_{ticket_index}_email.png",
         )
         tickets.append(ticket)
@@ -1097,6 +1087,7 @@ def build_ticket_snapshot_rows(
     remark: str,
     item_col: int | None,
     po_col: int | None,
+    ship_mode_col: int | None,
     pcs_col: int | None,
     pallet_col: int | None,
     carton_col: int | None,
@@ -1107,15 +1098,18 @@ def build_ticket_snapshot_rows(
             continue
         snapshot_rows.append(
             [
-                normalize_text(row[item_col]) if item_col is not None and item_col < len(row) else "",
+                tan_no,
                 normalize_text(row[po_col]) if po_col is not None and po_col < len(row) else "",
+                normalize_text(row[ship_mode_col]) if ship_mode_col is not None and ship_mode_col < len(row) else "",
                 normalize_text(row[pcs_col]) if pcs_col is not None and pcs_col < len(row) else "",
                 normalize_text(row[pallet_col]) if pallet_col is not None and pallet_col < len(row) else "",
                 normalize_text(row[carton_col]) if carton_col is not None and carton_col < len(row) else "",
                 "",
             ]
         )
-    snapshot_rows.append([tan_no, "", "", "", "", remark])
+    if not snapshot_rows:
+        snapshot_rows.append([tan_no, "", "", "", "", "", ""])
+    snapshot_rows.append(["备注", remark, "", "", "", "", ""])
     return snapshot_rows
 
 
@@ -1139,44 +1133,47 @@ def wrap_text_by_width(text: str, font: ImageFont.ImageFont | ImageFont.FreeType
 
 def render_ticket_snapshot_image(*, tan_no: str, preview_rows: list[list[str]], output_path: Path) -> Path:
     try:
-        title_font = ImageFont.truetype("msyh.ttc", 24)
-        header_font = ImageFont.truetype("msyh.ttc", 18)
-        body_font = ImageFont.truetype("msyh.ttc", 18)
+        header_font = ImageFont.truetype("msyh.ttc", 16)
+        body_font = ImageFont.truetype("msyh.ttc", 16)
     except Exception:
-        title_font = ImageFont.load_default()
         header_font = ImageFont.load_default()
         body_font = ImageFont.load_default()
 
-    headers = ["序号 / Tan#", "PO", "PCS数量", "板数", "箱数", "备注"]
-    col_widths = [170, 300, 135, 110, 110, 760]
-    cell_padding_x = 14
-    cell_padding_y = 10
+    headers = ["Tan#号", "PO", "Ship Mode", "PCS数量", "板数", "箱数", "备注"]
+    col_widths = [110, 105, 105, 85, 65, 65, 140]
+    cell_padding_x = 10
+    cell_padding_y = 8
     line_height = body_font.getbbox("A")[3] - body_font.getbbox("A")[1] + 6
     header_line_height = header_font.getbbox("A")[3] - header_font.getbbox("A")[1] + 6
-    title_height = 66
     row_heights: list[int] = []
     wrapped_rows: list[list[list[str]]] = []
+    note_wrap_width = sum(col_widths[1:4]) - cell_padding_x * 2
 
     for row in preview_rows:
         wrapped_row: list[list[str]] = []
         max_lines = 1
-        for value, width in zip(row, col_widths, strict=False):
-            wrapped = wrap_text_by_width(value, body_font, width - cell_padding_x * 2)
-            wrapped_row.append(wrapped)
-            max_lines = max(max_lines, len(wrapped))
+        is_note_row = bool(row and row[0] == "备注")
+        if is_note_row and len(col_widths) > 1:
+            tan_lines = wrap_text_by_width(row[0], body_font, col_widths[0] - cell_padding_x * 2)
+            remark_text = row[1] if len(row) > 1 else ""
+            remark_lines = wrap_text_by_width(remark_text, body_font, note_wrap_width)
+            wrapped_row = [tan_lines, remark_lines]
+            max_lines = max(len(tan_lines), len(remark_lines))
+        else:
+            for value, width in zip(row, col_widths, strict=False):
+                wrapped = wrap_text_by_width(value, body_font, width - cell_padding_x * 2)
+                wrapped_row.append(wrapped)
+                max_lines = max(max_lines, len(wrapped))
         wrapped_rows.append(wrapped_row)
-        row_heights.append(max(42, max_lines * line_height + cell_padding_y * 2))
+        row_heights.append(max(36, max_lines * line_height + cell_padding_y * 2))
 
     table_width = sum(col_widths) + 1
-    header_height = max(46, header_line_height + cell_padding_y * 2)
-    total_height = title_height + header_height + sum(row_heights) + 1
+    header_height = max(38, header_line_height + cell_padding_y * 2)
+    total_height = header_height + sum(row_heights) + 1
     image = Image.new("RGB", (table_width, total_height), "#fffdf8")
     draw = ImageDraw.Draw(image)
 
-    draw.rounded_rectangle((0, 0, table_width - 1, title_height - 6), radius=18, fill="#f6ede1", outline="#d7c7af")
-    draw.text((18, 18), f"匹配总表预览  {tan_no}", fill="#7b461c", font=title_font)
-
-    y = title_height
+    y = 0
     x = 0
     for header, width in zip(headers, col_widths, strict=False):
         draw.rectangle([x, y, x + width, y + header_height], fill="#efe2ce", outline="#cdbba0")
@@ -1186,10 +1183,26 @@ def render_ticket_snapshot_image(*, tan_no: str, preview_rows: list[list[str]], 
 
     for row_index, wrapped_row in enumerate(wrapped_rows):
         row = preview_rows[row_index]
-        is_tan_row = bool(row and row[0].upper().startswith("TAN#"))
-        row_fill = "#fff1dc" if is_tan_row else ("#ffffff" if row_index % 2 == 0 else "#fbf6ee")
+        is_note_row = bool(row and row[0] == "备注")
+        row_fill = "#fff1dc" if is_note_row else ("#ffffff" if row_index % 2 == 0 else "#fbf6ee")
         row_height = row_heights[row_index]
         x = 0
+        if is_note_row and len(col_widths) > 1:
+            first_width = col_widths[0]
+            draw.rectangle([x, y, x + first_width, y + row_height], fill=row_fill, outline="#d7c7af")
+            text_y = y + cell_padding_y
+            for line in wrapped_row[0]:
+                draw.text((x + cell_padding_x, text_y), line, fill="#1f2933", font=body_font)
+                text_y += line_height
+
+            merged_width = sum(col_widths[1:])
+            draw.rectangle([x + first_width, y, x + first_width + merged_width, y + row_height], fill=row_fill, outline="#d7c7af")
+            text_y = y + cell_padding_y
+            for line in wrapped_row[1]:
+                draw.text((x + first_width + cell_padding_x, text_y), line, fill="#1f2933", font=body_font)
+                text_y += line_height
+            y += row_height
+            continue
         for col_index, width in enumerate(col_widths):
             draw.rectangle([x, y, x + width, y + row_height], fill=row_fill, outline="#d7c7af")
             lines = wrapped_row[col_index]

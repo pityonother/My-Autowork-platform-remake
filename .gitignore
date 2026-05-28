@@ -5,6 +5,7 @@ __pycache__/
 
 build/
 dist/
+release_site/
 *.egg-info/
 
 runtime/
@@ -17,6 +18,7 @@ outputs/
 
 .env
 .env.*
+update_config.json
 *.log
 
 .DS_Store

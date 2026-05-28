@@ -1,0 +1,28 @@
+name: Build release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run checks
+        run: python -m tools.dev_check
+      - name: Build release site
+        env:
+          APP_RELEASE_VERSION: 2026.05.27+${{ github.sha }}
+        run: python tools/build_release.py --output-dir release_site
+      - name: Upload release_site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release_site
+          path: release_site

@@ -29,6 +29,7 @@ def main() -> None:
             "app",
             *root_python_files,
             "booking_rules",
+            "module_entrypoints",
             "tools",
             "tests",
         ]

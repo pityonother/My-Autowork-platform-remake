@@ -31,10 +31,15 @@ if not exist "%PYTHON%" (
 
 if errorlevel 1 exit /b %errorlevel%
 
-set "DIST_DIR=dist\%APP_NAME%"
-if not exist "%DIST_DIR%\runtime" mkdir "%DIST_DIR%\runtime"
-if exist "runtime\booking_sil_fuca_warehouse_template" robocopy "runtime\booking_sil_fuca_warehouse_template" "%DIST_DIR%\runtime\booking_sil_fuca_warehouse_template" /MIR /NFL /NDL /NJH /NJS >nul
+if /I "%~1"=="--with-runtime" (
+    set "DIST_DIR=dist\%APP_NAME%"
+    if not exist "%DIST_DIR%\runtime" mkdir "%DIST_DIR%\runtime"
+    if exist "runtime\booking_sil_fuca_warehouse_template" robocopy "runtime\booking_sil_fuca_warehouse_template" "%DIST_DIR%\runtime\booking_sil_fuca_warehouse_template" /MIR /NFL /NDL /NJH /NJS >nul
+    echo Runtime data copied because --with-runtime was explicitly provided.
+) else (
+    echo Runtime data was NOT copied. Use --with-runtime only for a private local backup build.
+)
 
 echo.
-echo Build finished: %CD%\%DIST_DIR%\%APP_NAME%.exe
+echo Build finished: %CD%\dist\%APP_NAME%\%APP_NAME%.exe
 endlocal
