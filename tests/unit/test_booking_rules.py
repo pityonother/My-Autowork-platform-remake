@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from datetime import date
+from email import policy
+from email.message import EmailMessage
+from email.parser import BytesParser
+from pathlib import Path
+from types import SimpleNamespace
 
 from openpyxl import Workbook, load_workbook
 
 from app.modules.booking.legacy_adapter import BookingPreview, build_booking_preview, write_booking_workbook
+from app.modules.booking import mail_builder
 from app.modules.booking.mail_builder import extract_sil_warehouse_no, replace_mail_template_values
 from app.modules.booking.rules.registry import SUPPLIER_RULES, get_supplier_names
+from booking_rules import vc_dzyq
 
 
 def test_booking_rule_registry_exposes_expected_suppliers() -> None:
@@ -37,7 +44,61 @@ def test_sil_warehouse_mail_helpers_replace_mawb_and_warehouse_no(tmp_path) -> N
     )
 
 
-def test_vc_dzyq_rule_maps_desktop_document_requirements(tmp_path) -> None:
+def test_sil_warehouse_template_falls_back_to_packaged_default(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        mail_builder,
+        "SIL_FUCA_WAREHOUSE_TEMPLATE_JSON",
+        tmp_path / "missing-runtime-template" / "template.json",
+    )
+
+    template = mail_builder.load_sil_fuca_warehouse_template()
+    base_dir = Path(str(template["_template_base_dir"]))
+
+    assert template["html"]
+    assert template["assets"]
+    assert mail_builder.resolve_template_asset_path(template["assets"][0], base_dir) is not None
+
+
+def test_generate_sil_warehouse_eml_uses_html_default_template(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(mail_builder, "RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(
+        mail_builder,
+        "SIL_FUCA_WAREHOUSE_TEMPLATE_JSON",
+        tmp_path / "missing-runtime-template" / "template.json",
+    )
+
+    customer_message = EmailMessage()
+    customer_message["Subject"] = "MAWB# 98765432109"
+    customer_message.set_content("customer body")
+    customer_eml = tmp_path / "customer.eml"
+    customer_eml.write_bytes(customer_message.as_bytes(policy=policy.default))
+
+    warehouse_file = tmp_path / "SIL26040490.pdf"
+    warehouse_file.write_bytes(b"warehouse")
+    preview = SimpleNamespace(
+        supplier="SIL-FUCA",
+        mawb_no="",
+        email_subject="MAWB# 98765432109",
+        session_id="rich-template-test",
+    )
+    output_path = tmp_path / "warehouse.eml"
+
+    mail_builder.generate_sil_fuca_warehouse_eml(
+        preview=preview,
+        customer_eml_path=customer_eml,
+        warehouse_file_path=warehouse_file,
+        output_path=output_path,
+    )
+
+    message = BytesParser(policy=policy.default).parsebytes(output_path.read_bytes())
+    html_part = message.get_body(preferencelist=("html",))
+
+    assert html_part is not None
+    assert "98765432109" in html_part.get_content()
+    assert "SIL26040490" in html_part.get_content()
+
+
+def test_vc_dzyq_rule_maps_desktop_document_requirements(monkeypatch, tmp_path) -> None:
     source_path = tmp_path / "VC_DZYQ.xlsx"
     wb = Workbook()
     ws = wb.active
@@ -64,13 +125,15 @@ def test_vc_dzyq_rule_maps_desktop_document_requirements(tmp_path) -> None:
     ws.append([None, None, None, None, None, None, "合计", 2000, None, None, None, None, 2, None])
     wb.save(source_path)
 
+    monkeypatch.setattr(vc_dzyq, "load_min_pack_lookup", lambda: ({"1010170933002T": 1000}, ""))
+
     preview = build_booking_preview(session_id="vc-test", supplier="VC_DZYQ", source_path=source_path)
 
     assert preview.can_generate
     assert len(preview.rows) == 1
     row = preview.rows[0]
-    assert row["订单号"] == "1010170933002T"
-    assert row["启益料号"] == "C33C-26010025-0001"
+    assert row["订单号"] == "C33C-26010025-0001"
+    assert row["启益料号"] == "1010170933002T"
     assert row["商品名称"] == "IC"
     assert row["数量"] == 2000
     assert row["单位"] == "PCS"
@@ -83,7 +146,7 @@ def test_vc_dzyq_rule_maps_desktop_document_requirements(tmp_path) -> None:
     assert row["批次"] == "0"
     assert row["品牌"] == "无"
     assert row["LEDBinCode"] == "无"
-    assert row["最小包装数"] == 2000
+    assert row["最小包装数"] == 1000
     assert row["每箱标准数"] == 2000
 
 

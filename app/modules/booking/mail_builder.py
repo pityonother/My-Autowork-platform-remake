@@ -10,11 +10,15 @@ from email.parser import BytesParser
 from pathlib import Path
 from typing import Any
 
-from app_paths import RUNTIME_DIR
+from app_paths import RESOURCE_DIR, RUNTIME_DIR
 
 
 SIL_FUCA_WAREHOUSE_TEMPLATE_DIR = RUNTIME_DIR / "booking_sil_fuca_warehouse_template"
 SIL_FUCA_WAREHOUSE_TEMPLATE_JSON = SIL_FUCA_WAREHOUSE_TEMPLATE_DIR / "template.json"
+DEFAULT_SIL_FUCA_WAREHOUSE_TEMPLATE_DIR = (
+    RESOURCE_DIR / "app" / "modules" / "booking" / "default_warehouse_template"
+)
+DEFAULT_SIL_FUCA_WAREHOUSE_TEMPLATE_JSON = DEFAULT_SIL_FUCA_WAREHOUSE_TEMPLATE_DIR / "template.json"
 
 
 def safe_attachment_name(filename: str) -> str:
@@ -114,13 +118,39 @@ def save_sil_fuca_warehouse_template_from_eml(eml_path: Path) -> dict[str, Any]:
     return data
 
 
+def _empty_template() -> dict[str, Any]:
+    return {"html": "", "plain": "", "assets": [], "_template_base_dir": ""}
+
+
+def _load_template_json(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["_template_base_dir"] = str(path.parent)
+    return data
+
+
 def load_sil_fuca_warehouse_template() -> dict[str, Any]:
-    if not SIL_FUCA_WAREHOUSE_TEMPLATE_JSON.exists():
-        return {"html": "", "plain": "", "assets": []}
-    try:
-        return json.loads(SIL_FUCA_WAREHOUSE_TEMPLATE_JSON.read_text(encoding="utf-8"))
-    except Exception:
-        return {"html": "", "plain": "", "assets": []}
+    for template_path in (SIL_FUCA_WAREHOUSE_TEMPLATE_JSON, DEFAULT_SIL_FUCA_WAREHOUSE_TEMPLATE_JSON):
+        if not template_path.exists():
+            continue
+        try:
+            return _load_template_json(template_path)
+        except Exception:
+            continue
+    return _empty_template()
+
+
+def resolve_template_asset_path(asset: dict[str, Any], template_base_dir: Path) -> Path | None:
+    raw_path = str(asset.get("path") or "").strip()
+    if not raw_path:
+        return None
+    asset_path = Path(raw_path)
+    candidates = [asset_path] if asset_path.is_absolute() else [template_base_dir / asset_path]
+    if asset_path.name:
+        candidates.append(template_base_dir / asset_path.name)
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def build_sil_fuca_warehouse_mail_subject(mawb_no: str, warehouse_no: str) -> str:
@@ -192,9 +222,10 @@ def generate_sil_fuca_warehouse_eml(
     if html_body:
         message.add_alternative(html_body, subtype="html")
         html_part = message.get_payload()[-1]
+        template_base_dir = Path(str(template.get("_template_base_dir") or ""))
         for asset in template.get("assets", []):
-            asset_path = Path(str(asset.get("path", "")))
-            if not asset_path.exists():
+            asset_path = resolve_template_asset_path(asset, template_base_dir)
+            if asset_path is None:
                 continue
             content_type = str(asset.get("content_type") or "application/octet-stream")
             maintype, subtype = content_type.split("/", 1)

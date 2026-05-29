@@ -27,6 +27,13 @@ if not exist "%PYTHON%" (
   --hidden-import "uvicorn.protocols.http.h11_impl" ^
   --hidden-import "uvicorn.lifespan.on" ^
   --hidden-import "multipart" ^
+  --hidden-import "pandas" ^
+  --hidden-import "PIL.Image" ^
+  --hidden-import "PIL.ImageDraw" ^
+  --hidden-import "PIL.ImageFont" ^
+  --collect-submodules "openpyxl" ^
+  --collect-submodules "xlrd" ^
+  --add-data "app\modules\booking\default_warehouse_template;app\modules\booking\default_warehouse_template" ^
   booking_packaged_app.py
 
 if errorlevel 1 exit /b %errorlevel%

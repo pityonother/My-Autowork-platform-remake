@@ -5,12 +5,13 @@ from pathlib import Path
 
 def test_pyinstaller_configs_include_required_runtime_assets() -> None:
     project_root = Path(__file__).resolve().parents[2]
-    required_assets = ["templates", "static", "booking_template_zh.xlsx"]
+    required_assets = ["templates", "static", "booking_template_zh.xlsx", "default_warehouse_template"]
     config_files = [
         "build_exe.bat",
         "build_booking_exe.bat",
         "BillClearanceTool.spec",
         "BookingTool.spec",
+        "tools/build_release.py",
     ]
 
     missing: list[str] = []
@@ -19,6 +20,26 @@ def test_pyinstaller_configs_include_required_runtime_assets() -> None:
         for asset in required_assets:
             if asset not in text:
                 missing.append(f"{relative_path}:{asset}")
+
+    assert missing == []
+
+
+def test_pyinstaller_configs_include_lazy_excel_dependencies() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    config_files = [
+        "build_exe.bat",
+        "build_booking_exe.bat",
+        "BillClearanceTool.spec",
+        "BookingTool.spec",
+        "tools/build_release.py",
+    ]
+
+    missing: list[str] = []
+    for relative_path in config_files:
+        text = (project_root / relative_path).read_text(encoding="utf-8")
+        for dependency in ["openpyxl", "xlrd"]:
+            if dependency not in text:
+                missing.append(f"{relative_path}:{dependency}")
 
     assert missing == []
 

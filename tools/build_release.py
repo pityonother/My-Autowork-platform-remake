@@ -29,6 +29,17 @@ HIDDEN_IMPORTS = [
     "uvicorn.protocols.http.h11_impl",
     "uvicorn.lifespan.on",
     "multipart",
+    "pandas",
+    "PIL.Image",
+    "PIL.ImageDraw",
+    "PIL.ImageFont",
+    "PIL.ImageSequence",
+    "fitz",
+]
+
+COLLECT_SUBMODULES = [
+    "openpyxl",
+    "xlrd",
 ]
 
 DATA_FILES = [
@@ -36,6 +47,10 @@ DATA_FILES = [
     ("static", "static"),
     ("booking_template_zh.xlsx", "."),
     ("sample_price.xlsx", "."),
+    (
+        "app/modules/booking/default_warehouse_template",
+        "app/modules/booking/default_warehouse_template",
+    ),
 ]
 
 MODULE_ENTRYPOINTS = {
@@ -116,6 +131,8 @@ def pyinstaller_command(*, app_name: str, entrypoint: str) -> list[str]:
         command.extend(["--add-data", f"{PROJECT_ROOT / source};{target}"])
     for hidden_import in HIDDEN_IMPORTS:
         command.extend(["--hidden-import", hidden_import])
+    for package_name in COLLECT_SUBMODULES:
+        command.extend(["--collect-submodules", package_name])
     command.append(entrypoint)
     return command
 
