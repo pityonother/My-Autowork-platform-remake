@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.modules.booking.rules.adapter import ModuleRuleAdapter
 from app.modules.booking.rules.protocol import BookingSupplierRule
-from booking_rules import sil, weikeng
+from booking_rules import sil, vc_dzyq, weikeng
 
 
 class BookingRuleRegistry:
@@ -21,6 +21,7 @@ class BookingRuleRegistry:
 
 registry = BookingRuleRegistry()
 registry.register(ModuleRuleAdapter(sil))
+registry.register(ModuleRuleAdapter(vc_dzyq))
 registry.register(ModuleRuleAdapter(weikeng))
 
 SUPPLIER_RULES = registry.as_dict()

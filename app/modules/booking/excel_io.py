@@ -51,7 +51,8 @@ def find_openpyxl_sheet(wb: Any, candidates: list[str]) -> Any | None:
 def sheet_to_rows(sheet: Any) -> tuple[list[dict[str, Any]], list[str]]:
     if sheet.nrows == 0:
         return [], []
-    headers = [str(sheet.cell_value(0, col)).strip() for col in range(sheet.ncols)]
+    raw_headers = [str(sheet.cell_value(0, col)).strip() for col in range(sheet.ncols)]
+    headers = build_headers_with_blank_aliases(raw_headers)
     rows: list[dict[str, Any]] = []
     for row_index in range(1, sheet.nrows):
         row: dict[str, Any] = {}
@@ -72,7 +73,8 @@ def openpyxl_sheet_to_rows(sheet: Any) -> tuple[list[dict[str, Any]], list[str]]
     values = list(sheet.iter_rows(values_only=True))
     if not values:
         return [], []
-    headers = [str(value).strip() if value is not None else "" for value in values[0]]
+    raw_headers = [str(value).strip() if value is not None else "" for value in values[0]]
+    headers = build_headers_with_blank_aliases(raw_headers)
     rows: list[dict[str, Any]] = []
     for raw_row in values[1:]:
         row: dict[str, Any] = {}
@@ -86,6 +88,24 @@ def openpyxl_sheet_to_rows(sheet: Any) -> tuple[list[dict[str, Any]], list[str]]
         if not empty:
             rows.append(row)
     return rows, headers
+
+
+def build_headers_with_blank_aliases(raw_headers: list[str]) -> list[str]:
+    headers: list[str] = []
+    last_named = ""
+    blank_after_named_count = 0
+    for index, header in enumerate(raw_headers, start=1):
+        if header:
+            headers.append(header)
+            last_named = header
+            blank_after_named_count = 0
+            continue
+        if last_named and blank_after_named_count == 0:
+            headers.append(f"{last_named}右侧一列")
+        else:
+            headers.append(f"__blank_col_{index}")
+        blank_after_named_count += 1
+    return headers
 
 
 def load_rows_from_workbook(path: Path, candidates: list[str]) -> tuple[list[dict[str, Any]], list[str], str] | None:

@@ -215,6 +215,23 @@ def volume_cm_to_m3(value: Any) -> float | None:
     return float(round(volume / Decimal("1000000"), 6))
 
 
+def weight_to_kg(value: Any) -> int | float | None:
+    values = value if isinstance(value, (list, tuple)) else [value, "KG"]
+    amount = as_number(values[0] if values else 0) or 0
+    unit = as_text(values[1] if len(values) > 1 else "KG").upper()
+    if unit in {"KG", "KGS", "KILOGRAM", "KILOGRAMS", ""}:
+        result = Decimal(str(amount))
+    elif unit in {"G", "GS", "GRAM", "GRAMS"}:
+        result = Decimal(str(amount)) / Decimal("1000")
+    elif unit in {"MG", "MILLIGRAM", "MILLIGRAMS"}:
+        result = Decimal(str(amount)) / Decimal("1000000")
+    elif unit in {"LB", "LBS", "POUND", "POUNDS"}:
+        result = Decimal(str(amount)) * Decimal("0.45359237")
+    else:
+        result = Decimal(str(amount))
+    return int(result) if result == result.to_integral_value() else float(result)
+
+
 def clean_value(value: Any, cleaner: str | None) -> Any:
     if cleaner == "suffix_0001":
         base = as_text(value).strip().rstrip(".．。").strip()
@@ -235,6 +252,8 @@ def clean_value(value: Any, cleaner: str | None) -> Any:
         return as_number(value)
     if cleaner == "volume_cm_to_m3":
         return volume_cm_to_m3(value)
+    if cleaner == "weight_to_kg":
+        return weight_to_kg(value)
     if cleaner == "letters_only":
         return "".join(re.findall(r"[A-Za-z]+", as_text(value))).upper()
     if isinstance(value, str):
@@ -590,6 +609,28 @@ def _copy_row_style(ws: Worksheet, source_row: int, target_row: int) -> None:
             target.protection = copy.copy(source.protection)
 
 
+def _unmerge_ranges_intersecting_rows(ws: Worksheet, start_row: int, end_row: int, style_source_row: int) -> None:
+    for merged_range in list(ws.merged_cells.ranges):
+        if merged_range.max_row < start_row or merged_range.min_row > end_row:
+            continue
+        affected_rows = range(max(merged_range.min_row, start_row), min(merged_range.max_row, end_row) + 1)
+        affected_cols = range(merged_range.min_col, merged_range.max_col + 1)
+        ws.unmerge_cells(str(merged_range))
+        for row in affected_rows:
+            ws.row_dimensions[row].height = ws.row_dimensions[style_source_row].height
+            for col in affected_cols:
+                source = ws.cell(style_source_row, col)
+                target = ws.cell(row, col)
+                if source.has_style:
+                    target._style = copy.copy(source._style)
+                if source.number_format:
+                    target.number_format = source.number_format
+                if source.alignment:
+                    target.alignment = copy.copy(source.alignment)
+                if source.protection:
+                    target.protection = copy.copy(source.protection)
+
+
 def write_booking_workbook(preview: BookingPreview, output_dir: Path | None = None, template_path: Path | None = None) -> Path:
     if not preview.can_generate:
         raise ValueError("当前预览有错误，不能生成 booking form。")
@@ -629,6 +670,7 @@ def write_booking_workbook(preview: BookingPreview, output_dir: Path | None = No
             ws.cell(insert_at + offset, 1).value = available + offset + 1
 
     final_data_end = data_start + max(needed, available) - 1
+    _unmerge_ranges_intersecting_rows(ws, data_start, final_data_end, data_end)
     for row in range(data_start, final_data_end + 1):
         for col in range(2, ws.max_column + 1):
             ws.cell(row, col).value = None
