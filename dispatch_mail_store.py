@@ -16,6 +16,7 @@ from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email.utils import make_msgid
+from itertools import combinations
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 from xml.etree import ElementTree as ET
@@ -32,6 +33,10 @@ ImageFont = lazy_module("PIL.ImageFont")
 
 
 DB_PATH = RUNTIME_DIR / "dispatch_mail.db"
+DISPATCH_RULE_AUTO = "auto"
+DISPATCH_RULE_GENERIC = "generic"
+DISPATCH_RULE_FLEX_RTX = "flex_rtx"
+DISPATCH_RULE_PROFILES = {DISPATCH_RULE_AUTO, DISPATCH_RULE_GENERIC, DISPATCH_RULE_FLEX_RTX}
 SPREADSHEET_SUFFIXES = {".xls", ".xlsx", ".xlsm"}
 WORD_SUFFIXES = {".doc", ".docx"}
 CONTENT_MATCH_SUFFIXES = SPREADSHEET_SUFFIXES | WORD_SUFFIXES | {".pdf"}
@@ -115,13 +120,17 @@ class DispatchTicket:
     table_image_path: Path | None = None
     email_image_path: Path | None = None
     dqth: DispatchDqth | None = None
+    dqths: list[DispatchDqth] = field(default_factory=list)
     so: DispatchSo | None = None
+    sos: list[DispatchSo] = field(default_factory=list)
     warehouse_code: str = ""
     address: str = ""
     note: str = ""
     show_carton_count_in_title: bool = False
     dqth_expected_order: int | None = None
     so_expected_order: int | None = None
+    include_in_dispatch: bool = True
+    match_exempt_reason: str = ""
 
 
 @dataclass
@@ -131,6 +140,7 @@ class DispatchParseResult:
     attachments_dir: Path
     output_dir: Path
     master: DispatchAttachment | None
+    rule_profile: str = DISPATCH_RULE_GENERIC
     tickets: list[DispatchTicket] = field(default_factory=list)
     dqths: list[DispatchDqth] = field(default_factory=list)
     sos: list[DispatchSo] = field(default_factory=list)
@@ -209,6 +219,10 @@ def decimal_value(value: Any) -> Decimal:
         return Decimal("0")
 
 
+def decimal_close(a: Decimal, b: Decimal, tolerance: Decimal = Decimal("0.02")) -> bool:
+    return abs(a - b) <= tolerance
+
+
 def display_number(value: Decimal) -> str:
     value = value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
     if value == value.to_integral_value():
@@ -226,6 +240,48 @@ def normalize_text(value: Any) -> str:
 
 def normalize_po(value: Any) -> str:
     return re.sub(r"\s+", "", normalize_text(value)).upper()
+
+
+def normalize_dispatch_rule_profile(rule_profile: str | None) -> str:
+    value = (rule_profile or DISPATCH_RULE_AUTO).strip().lower().replace("-", "_")
+    aliases = {
+        "default": DISPATCH_RULE_GENERIC,
+        "dqth": DISPATCH_RULE_GENERIC,
+        "flex": DISPATCH_RULE_FLEX_RTX,
+        "rtx": DISPATCH_RULE_FLEX_RTX,
+        "flex/rtx": DISPATCH_RULE_FLEX_RTX,
+        "flex_rtx": DISPATCH_RULE_FLEX_RTX,
+    }
+    value = aliases.get(value, value)
+    return value if value in DISPATCH_RULE_PROFILES else DISPATCH_RULE_AUTO
+
+
+def dispatch_active_tickets(result: DispatchParseResult) -> list[DispatchTicket]:
+    return [ticket for ticket in result.tickets if ticket.include_in_dispatch]
+
+
+def ticket_dqths(ticket: DispatchTicket) -> list[DispatchDqth]:
+    if ticket.dqths:
+        return ticket.dqths
+    return [ticket.dqth] if ticket.dqth else []
+
+
+def ticket_sos(ticket: DispatchTicket) -> list[DispatchSo]:
+    if ticket.sos:
+        return ticket.sos
+    return [ticket.so] if ticket.so else []
+
+
+def sync_ticket_attachment_lists(tickets: list[DispatchTicket]) -> None:
+    for ticket in tickets:
+        if ticket.dqth and ticket.dqth not in ticket.dqths:
+            ticket.dqths.insert(0, ticket.dqth)
+        if ticket.dqths and ticket.dqth is None:
+            ticket.dqth = ticket.dqths[0]
+        if ticket.so and ticket.so not in ticket.sos:
+            ticket.sos.insert(0, ticket.so)
+        if ticket.sos and ticket.so is None:
+            ticket.so = ticket.sos[0]
 
 
 def safe_filename(name: str) -> str:
@@ -602,7 +658,7 @@ def parse_master_workbook(master: DispatchAttachment, output_dir: Path) -> list[
     return tickets
 
 
-def parse_dqth_file(attachment: DispatchAttachment) -> DispatchDqth:
+def parse_dqth_file(attachment: DispatchAttachment, *, skip_total_rows: bool = False) -> DispatchDqth:
     if attachment.stored_path.suffix.lower() == ".xls":
         book = xlrd.open_workbook(attachment.stored_path, formatting_info=False)
         sheet = book.sheet_by_index(0)
@@ -618,11 +674,324 @@ def parse_dqth_file(attachment: DispatchAttachment) -> DispatchDqth:
     pallet_col = find_column(mapping, ["Pallet", "卡板"])
     gross_col = find_column(mapping, ["Gross weight", "总毛重"])
     data_rows = rows[header_row + 1 :]
+    if skip_total_rows:
+        data_rows = [
+            row
+            for row in data_rows
+            if not normalize_text(row[0] if row else "").upper().startswith(("TOTAL", "***"))
+        ]
     pos = sorted({normalize_po(row[po_col]) for row in data_rows if po_col is not None and po_col < len(row) and normalize_po(row[po_col])})
     cartons = sum((decimal_value(row[carton_col]) for row in data_rows if carton_col is not None and carton_col < len(row)), Decimal("0"))
     pallets = sum((decimal_value(row[pallet_col]) for row in data_rows if pallet_col is not None and pallet_col < len(row)), Decimal("0"))
     gross = sum((decimal_value(row[gross_col]) for row in data_rows if gross_col is not None and gross_col < len(row)), Decimal("0"))
     return DispatchDqth(attachment=attachment, customer_pos=pos, cartons=cartons, pallets=pallets, gross_weight=gross)
+
+
+def row_has_text(row: Sequence[Any], text: str) -> bool:
+    needle = text.lower()
+    return any(needle in normalize_text(cell).lower() for cell in row)
+
+
+def row_joined_text(row: Sequence[Any]) -> str:
+    return " ".join(normalize_text(cell) for cell in row if normalize_text(cell))
+
+
+def is_business_detail_row(row: Sequence[Any], po_col: int | None) -> bool:
+    if po_col is None or po_col >= len(row):
+        return False
+    return bool(normalize_po(row[po_col]))
+
+
+def normalize_reference_token(value: str) -> str:
+    return re.sub(r"[^A-Z0-9]+", "", normalize_text(value).upper())
+
+
+def extract_flex_reference_tokens(text: str) -> set[str]:
+    patterns = [
+        r"WJ/HAM-[A-Z0-9]+",
+        r"PTFLX\d+[A-Z]?",
+        r"PTRTM\d+[A-Z]?",
+        r"PLIH[A-Z0-9]+",
+        r"SRAF\d+",
+        r"S\d{8,}",
+        r"PI[-\s]?\d+",
+        r"HB#?\s*[A-Z0-9/.-]+",
+        r"HAWB#?\s*[A-Z0-9/.-]+",
+    ]
+    tokens: set[str] = set()
+    for pattern in patterns:
+        for match in re.findall(pattern, text, flags=re.IGNORECASE):
+            token = normalize_reference_token(match)
+            if len(token) >= 4:
+                tokens.add(token)
+    return tokens
+
+
+def extract_flex_po_tokens(text: str) -> set[str]:
+    return {token for token in re.findall(r"\b\d{5,6}\b", text) if token not in {"518103"}}
+
+
+def detect_dispatch_rule_profile(attachments: list[DispatchAttachment]) -> str:
+    names = " ".join(attachment.original_name for attachment in attachments).upper()
+    has_tan_sheet = "TAN SHEET" in names
+    has_flex_pl = any(attachment.original_name.upper().startswith("INV+PL") for attachment in attachments)
+    if has_tan_sheet and has_flex_pl:
+        return DISPATCH_RULE_FLEX_RTX
+    return DISPATCH_RULE_GENERIC
+
+
+def ensure_flex_attachment_text(attachment: DispatchAttachment) -> str:
+    if attachment.stored_path.suffix.lower() in CONTENT_MATCH_SUFFIXES:
+        ensure_attachment_text(attachment)
+    return f"{attachment.original_name} {attachment.text}"
+
+
+def looks_like_flex_master_attachment(attachment: DispatchAttachment) -> bool:
+    name = attachment.original_name.upper()
+    return "TAN SHEET" in name or looks_like_tan_master_attachment(attachment)
+
+
+def looks_like_flex_pl_attachment(attachment: DispatchAttachment) -> bool:
+    name = attachment.original_name.upper()
+    return name.startswith("INV+PL")
+
+
+def classify_flex_rtx_attachments(
+    attachments: list[DispatchAttachment],
+) -> tuple[DispatchAttachment | None, list[DispatchAttachment], list[DispatchAttachment], list[str]]:
+    warnings: list[str] = []
+    masters: list[DispatchAttachment] = []
+    pls: list[DispatchAttachment] = []
+    delivery_files: list[DispatchAttachment] = []
+    for attachment in attachments:
+        lower = attachment.original_name.lower()
+        if attachment.stored_path.suffix.lower() in CONTENT_MATCH_SUFFIXES:
+            ensure_flex_attachment_text(attachment)
+        if lower.endswith(tuple(SPREADSHEET_SUFFIXES)) and looks_like_flex_master_attachment(attachment):
+            attachment.role = "master"
+            masters.append(attachment)
+        elif lower.endswith(tuple(SPREADSHEET_SUFFIXES)) and looks_like_flex_pl_attachment(attachment):
+            attachment.role = "dqth"
+            pls.append(attachment)
+        else:
+            attachment.role = "so"
+            delivery_files.append(attachment)
+    master = masters[-1] if masters else None
+    if not master:
+        warnings.append("未识别到 FLEX/RTX Tan Sheet 总表。")
+    return master, pls, delivery_files, warnings
+
+
+def is_flex_shared_load_ticket(remark: str) -> bool:
+    return bool(re.search(r"\bJODY\s+GUAN\b", remark, flags=re.IGNORECASE))
+
+
+def parse_flex_rtx_master_workbook(master: DispatchAttachment, output_dir: Path) -> list[DispatchTicket]:
+    if master.stored_path.suffix.lower() != ".xls":
+        with pd.ExcelFile(master.stored_path) as excel_file:
+            sheet_name = excel_file.sheet_names[0]
+            df = excel_file.parse(sheet_name=sheet_name, header=None)
+        rows = df.fillna("").values.tolist()
+    else:
+        book = xlrd.open_workbook(master.stored_path, formatting_info=False)
+        sheet = book.sheet_by_index(0)
+        sheet_name = sheet.name
+        rows = [[sheet.cell_value(r, c) for c in range(sheet.ncols)] for r in range(sheet.nrows)]
+
+    header_row = next((idx for idx, row in enumerate(rows) if row_has_text(row, "Customer PO")), 0)
+    mapping = header_index_map(rows[header_row])
+    item_col = find_column(mapping, ["Item", "序号"])
+    po_col = find_column(mapping, ["Customer PO"])
+    pcs_col = find_column(mapping, ["总数量PCS", "PCS"])
+    gross_col = find_column(mapping, ["毛重KG", "毛重"])
+    carton_col = find_column(mapping, ["箱数"])
+    pallet_col = find_column(mapping, ["卡板数", "卡板"])
+    ship_mode_col = find_column(mapping, ["ship mode", "shipmode", "shipping mode", "运输方式", "出货方式"])
+    if po_col is None or pallet_col is None:
+        raise ValueError("FLEX/RTX Tan Sheet 缺少 Customer PO 或 卡板数列，无法拆票。")
+
+    tan_pattern = re.compile(r"\bTAN\s*#\s*(\d+(?:/\d+)*)\b", flags=re.IGNORECASE)
+    tickets: list[DispatchTicket] = []
+    idx = header_row + 1
+    segment_start = idx
+    while idx < len(rows):
+        row = rows[idx]
+        row_text = row_joined_text(row)
+        tan_match = tan_pattern.search(row_text)
+        if not tan_match:
+            idx += 1
+            continue
+
+        tan_row = idx
+        detail_rows = [
+            detail_row
+            for detail_row in rows[segment_start:tan_row]
+            if any(normalize_text(cell) for cell in detail_row)
+        ]
+        post_note_rows: list[list[Any]] = []
+        next_segment_start = tan_row + 1
+        while next_segment_start < len(rows) and not is_business_detail_row(rows[next_segment_start], po_col):
+            if any(normalize_text(cell) for cell in rows[next_segment_start]):
+                post_note_rows.append(rows[next_segment_start])
+            next_segment_start += 1
+
+        data_rows = [detail_row for detail_row in detail_rows if is_business_detail_row(detail_row, po_col)]
+        pre_note_text = " ".join(
+            row_joined_text(detail_row)
+            for detail_row in detail_rows
+            if not is_business_detail_row(detail_row, po_col)
+        )
+        post_note_text = " ".join(row_joined_text(note_row) for note_row in post_note_rows)
+        remark = " ".join(part for part in [pre_note_text, row_text, post_note_text] if part).strip()
+        tan_no = f"TAN#{tan_match.group(1)}"
+        pos = sorted({normalize_po(row[po_col]) for row in data_rows if po_col < len(row) and normalize_po(row[po_col])})
+        cartons = sum((decimal_value(row[carton_col]) for row in data_rows if carton_col is not None and carton_col < len(row)), Decimal("0"))
+        gross = sum((decimal_value(row[gross_col]) for row in data_rows if gross_col is not None and gross_col < len(row)), Decimal("0"))
+        pallets = sum((decimal_value(row[pallet_col]) for row in data_rows if pallet_col < len(row)), Decimal("0"))
+        preview_rows = build_ticket_snapshot_rows(
+            rows,
+            start_row=segment_start,
+            tan_row=tan_row,
+            tan_no=tan_no,
+            remark=remark,
+            item_col=item_col,
+            po_col=po_col,
+            ship_mode_col=ship_mode_col,
+            pcs_col=pcs_col,
+            pallet_col=pallet_col,
+            carton_col=carton_col,
+        )
+        ticket = DispatchTicket(
+            index=len(tickets) + 1,
+            tan_no=tan_no,
+            customer_pos=pos,
+            remark=remark,
+            cartons=cartons,
+            gross_weight=gross,
+            pallets=pallets,
+            row_start=segment_start,
+            row_end=tan_row,
+            note=build_default_ticket_note(remark),
+            show_carton_count_in_title=should_show_cartons_in_title(data_rows, carton_col, pallet_col),
+        )
+        if is_flex_shared_load_ticket(remark):
+            ticket.include_in_dispatch = False
+            ticket.match_exempt_reason = "拼车票 / 其他客户货物，本邮件默认不处理"
+        ticket.table_image_path = render_ticket_snapshot_image(
+            tan_no=tan_no,
+            preview_rows=preview_rows,
+            output_path=output_dir / f"ticket_{ticket.index}.png",
+        )
+        ticket.email_image_path = render_ticket_snapshot_image(
+            tan_no=tan_no,
+            preview_rows=preview_rows,
+            output_path=output_dir / f"ticket_{ticket.index}_email.png",
+        )
+        tickets.append(ticket)
+        segment_start = next_segment_start
+        idx = next_segment_start
+    return tickets
+
+
+def totals_match_ticket(ticket: DispatchTicket, dqths: Sequence[DispatchDqth]) -> bool:
+    cartons = sum((dqth.cartons for dqth in dqths), Decimal("0"))
+    pallets = sum((dqth.pallets for dqth in dqths), Decimal("0"))
+    gross = sum((dqth.gross_weight for dqth in dqths), Decimal("0"))
+    return (
+        decimal_close(cartons, ticket.cartons)
+        and decimal_close(pallets, ticket.pallets)
+        and decimal_close(gross, ticket.gross_weight, Decimal("1"))
+    )
+
+
+def find_exact_dqth_subsets(ticket: DispatchTicket, dqths: list[DispatchDqth]) -> list[tuple[int, ...]]:
+    ticket_pos = set(ticket.customer_pos)
+    if not ticket_pos:
+        return []
+    candidate_indexes = [
+        idx
+        for idx, dqth in enumerate(dqths)
+        if dqth.matched_ticket_index is None and ticket_pos & set(dqth.customer_pos)
+    ]
+    matches: list[tuple[int, ...]] = []
+    max_size = min(len(candidate_indexes), 5)
+    for size in range(1, max_size + 1):
+        for subset in combinations(candidate_indexes, size):
+            subset_dqths = [dqths[item] for item in subset]
+            subset_pos = set().union(*(set(item.customer_pos) for item in subset_dqths))
+            if not ticket_pos.issubset(subset_pos):
+                continue
+            if totals_match_ticket(ticket, subset_dqths):
+                matches.append(subset)
+        if matches:
+            break
+    return matches
+
+
+def match_flex_rtx_dqths(tickets: list[DispatchTicket], dqths: list[DispatchDqth], warnings: list[str]) -> None:
+    exact_matches = {
+        ticket.index - 1: find_exact_dqth_subsets(ticket, dqths)
+        for ticket in tickets
+        if ticket.include_in_dispatch
+    }
+    subset_claims: dict[int, set[int]] = {}
+    for ticket_idx, subsets in exact_matches.items():
+        for subset in subsets:
+            for dqth_idx in subset:
+                subset_claims.setdefault(dqth_idx, set()).add(ticket_idx)
+
+    for ticket in tickets:
+        if not ticket.include_in_dispatch:
+            continue
+        subsets = exact_matches.get(ticket.index - 1, [])
+        if len(subsets) != 1:
+            if len(subsets) > 1:
+                warnings.append(f"{ticket.tan_no} 有多个 PL 组合都能对上数量，已留给人工确认。")
+            continue
+        subset = subsets[0]
+        if any(len(subset_claims.get(dqth_idx, set())) > 1 for dqth_idx in subset):
+            warnings.append(f"{ticket.tan_no} 的 PL 候选与其他 Tan# 共享 PO，已留给人工确认。")
+            continue
+        ticket.dqths = [dqths[dqth_idx] for dqth_idx in subset]
+        ticket.dqth = ticket.dqths[0] if ticket.dqths else None
+        for dqth in ticket.dqths:
+            dqth.matched_ticket_index = ticket.index - 1
+            dqth.status = "已匹配"
+
+
+def score_flex_rtx_so_match(so: DispatchSo, ticket: DispatchTicket) -> float:
+    text = ensure_flex_attachment_text(so.attachment)
+    so_refs = extract_flex_reference_tokens(text)
+    ticket_refs = extract_flex_reference_tokens(ticket.remark)
+    so_pos = extract_flex_po_tokens(text)
+    ticket_pos = set(ticket.customer_pos)
+    ref_overlap = so_refs & ticket_refs
+    po_overlap = so_pos & ticket_pos
+    if not ref_overlap and not po_overlap:
+        return 0
+    return min(0.99, len(ref_overlap) * 0.35 + len(po_overlap) * 0.25)
+
+
+def match_flex_rtx_sos(tickets: list[DispatchTicket], sos: list[DispatchSo]) -> None:
+    for so in sos:
+        scores = [
+            (score_flex_rtx_so_match(so, ticket), ticket)
+            for ticket in tickets
+            if ticket.include_in_dispatch
+        ]
+        scores = [(score, ticket) for score, ticket in scores if score > 0]
+        if not scores:
+            continue
+        scores.sort(key=lambda item: (-item[0], item[1].index))
+        best_score, best_ticket = scores[0]
+        next_score = scores[1][0] if len(scores) > 1 else 0
+        so.score = best_score
+        if best_score >= 0.25 and (best_score >= 0.60 or best_score - next_score >= 0.10):
+            so.matched_ticket_index = best_ticket.index - 1
+            so.status = "已匹配"
+            best_ticket.sos.append(so)
+            if best_ticket.so is None:
+                best_ticket.so = so
 
 
 def read_dispatch_attachment_preview(attachment: DispatchAttachment, *, max_rows: int = 60, max_cols: int = 18) -> tuple[str, list[list[str]]] | None:
@@ -751,13 +1120,13 @@ def is_auto_attachment_name(*, current_name: str, original_name: str, suggested_
 
 
 def refresh_dispatch_match_status(result: DispatchParseResult) -> None:
-    result.unmatched_dqths = [item for item in result.dqths if all(ticket.dqth is not item for ticket in result.tickets)]
-    result.unmatched_sos = [item for item in result.sos if all(ticket.so is not item for ticket in result.tickets)]
+    result.unmatched_dqths = [item for item in result.dqths if all(item not in ticket_dqths(ticket) for ticket in result.tickets)]
+    result.unmatched_sos = [item for item in result.sos if all(item not in ticket_sos(ticket) for ticket in result.tickets)]
     warnings = list(result.base_warnings)
-    if result.tickets and len(result.dqths) != len(result.tickets):
+    if result.rule_profile == DISPATCH_RULE_GENERIC and result.tickets and len(result.dqths) != len(result.tickets):
         warnings.append(f"DQT 数量 {len(result.dqths)} 与 Tan# 票数 {len(result.tickets)} 不一致。")
     for ticket in result.tickets:
-        if ticket.dqth is None:
+        if ticket.include_in_dispatch and not ticket_dqths(ticket):
             warnings.append(f"{ticket.tan_no} 未匹配到 DQT 装箱单。")
     result.warnings = warnings
 
@@ -1096,14 +1465,21 @@ def build_ticket_snapshot_rows(
     for row in rows[start_row:tan_row]:
         if not any(normalize_text(cell) for cell in row):
             continue
+        po_text = normalize_text(row[po_col]) if po_col is not None and po_col < len(row) else ""
+        ship_mode_text = normalize_text(row[ship_mode_col]) if ship_mode_col is not None and ship_mode_col < len(row) else ""
+        pcs_text = normalize_text(row[pcs_col]) if pcs_col is not None and pcs_col < len(row) else ""
+        pallet_text = normalize_text(row[pallet_col]) if pallet_col is not None and pallet_col < len(row) else ""
+        carton_text = normalize_text(row[carton_col]) if carton_col is not None and carton_col < len(row) else ""
+        if not any([po_text, ship_mode_text, pcs_text, pallet_text, carton_text]):
+            continue
         snapshot_rows.append(
             [
                 tan_no,
-                normalize_text(row[po_col]) if po_col is not None and po_col < len(row) else "",
-                normalize_text(row[ship_mode_col]) if ship_mode_col is not None and ship_mode_col < len(row) else "",
-                normalize_text(row[pcs_col]) if pcs_col is not None and pcs_col < len(row) else "",
-                normalize_text(row[pallet_col]) if pallet_col is not None and pallet_col < len(row) else "",
-                normalize_text(row[carton_col]) if carton_col is not None and carton_col < len(row) else "",
+                po_text,
+                ship_mode_text,
+                pcs_text,
+                pallet_text,
+                carton_text,
                 "",
             ]
         )
@@ -1218,13 +1594,13 @@ def render_ticket_snapshot_image(*, tan_no: str, preview_rows: list[list[str]], 
     return output_path
 
 
-def parse_dispatch_eml(session_id: str, eml_path: Path, uploads_dir: Path, outputs_dir: Path) -> DispatchParseResult:
-    attachment_dir = uploads_dir / session_id / "dispatch_attachments"
-    output_dir = outputs_dir / f"dispatch_{session_id}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    attachments = extract_email_attachments(eml_path, attachment_dir)
-    if not attachments:
-        raise ValueError("客户邮件没有可处理的附件。")
+def parse_generic_dispatch_eml(
+    session_id: str,
+    eml_path: Path,
+    attachments: list[DispatchAttachment],
+    attachment_dir: Path,
+    output_dir: Path,
+) -> DispatchParseResult:
     master, dqth_attachments, so_attachments, warnings = classify_attachments(attachments)
     tickets: list[DispatchTicket] = []
     if master:
@@ -1236,6 +1612,7 @@ def parse_dispatch_eml(session_id: str, eml_path: Path, uploads_dir: Path, outpu
     if tickets:
         match_dqths(tickets, dqths)
         match_sos(tickets, sos)
+        sync_ticket_attachment_lists(tickets)
         apply_attachment_names(tickets, dqths, sos)
     base_warnings = list(warnings)
     if master and not tickets:
@@ -1246,6 +1623,7 @@ def parse_dispatch_eml(session_id: str, eml_path: Path, uploads_dir: Path, outpu
         attachments_dir=attachment_dir,
         output_dir=output_dir,
         master=master,
+        rule_profile=DISPATCH_RULE_GENERIC,
         tickets=tickets,
         dqths=dqths,
         sos=sos,
@@ -1255,24 +1633,117 @@ def parse_dispatch_eml(session_id: str, eml_path: Path, uploads_dir: Path, outpu
     return result
 
 
+def parse_flex_rtx_dispatch_eml(
+    session_id: str,
+    eml_path: Path,
+    attachments: list[DispatchAttachment],
+    attachment_dir: Path,
+    output_dir: Path,
+) -> DispatchParseResult:
+    master, pl_attachments, delivery_attachments, warnings = classify_flex_rtx_attachments(attachments)
+    tickets: list[DispatchTicket] = []
+    if master:
+        tickets = parse_flex_rtx_master_workbook(master, output_dir)
+    dqths = [parse_dqth_file(item, skip_total_rows=True) for item in pl_attachments]
+    for idx, dqth in enumerate(dqths):
+        dqth.preview_index = idx
+    sos = [DispatchSo(attachment=item, preview_index=idx) for idx, item in enumerate(delivery_attachments)]
+    if tickets:
+        match_flex_rtx_dqths(tickets, dqths, warnings)
+        match_flex_rtx_sos(tickets, sos)
+        sync_ticket_attachment_lists(tickets)
+        apply_attachment_names(tickets, dqths, sos)
+    base_warnings = list(warnings)
+    if master and not tickets:
+        base_warnings.append("已识别 FLEX/RTX Tan Sheet，但没有拆出 Tan# 票段。")
+    for ticket in tickets:
+        if not ticket.include_in_dispatch and ticket.match_exempt_reason:
+            base_warnings.append(f"{ticket.tan_no}：{ticket.match_exempt_reason}")
+    result = DispatchParseResult(
+        session_id=session_id,
+        eml_name=eml_path.name,
+        attachments_dir=attachment_dir,
+        output_dir=output_dir,
+        master=master,
+        rule_profile=DISPATCH_RULE_FLEX_RTX,
+        tickets=tickets,
+        dqths=dqths,
+        sos=sos,
+        base_warnings=base_warnings,
+    )
+    refresh_dispatch_match_status(result)
+    return result
+
+
+def parse_dispatch_eml(
+    session_id: str,
+    eml_path: Path,
+    uploads_dir: Path,
+    outputs_dir: Path,
+    *,
+    rule_profile: str | None = DISPATCH_RULE_AUTO,
+) -> DispatchParseResult:
+    attachment_dir = uploads_dir / session_id / "dispatch_attachments"
+    output_dir = outputs_dir / f"dispatch_{session_id}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    attachments = extract_email_attachments(eml_path, attachment_dir)
+    if not attachments:
+        raise ValueError("客户邮件没有可处理的附件。")
+    profile = normalize_dispatch_rule_profile(rule_profile)
+    if profile == DISPATCH_RULE_AUTO:
+        profile = detect_dispatch_rule_profile(attachments)
+    if profile == DISPATCH_RULE_FLEX_RTX:
+        return parse_flex_rtx_dispatch_eml(session_id, eml_path, attachments, attachment_dir, output_dir)
+    return parse_generic_dispatch_eml(session_id, eml_path, attachments, attachment_dir, output_dir)
+
+
 def resolve_assignments(result: DispatchParseResult, form: dict[str, Any]) -> None:
-    dqth_by_ticket: dict[int, DispatchDqth | None] = {}
-    so_by_ticket: dict[int, DispatchSo | None] = {}
+    def form_values(key: str) -> list[str]:
+        if hasattr(form, "getlist"):
+            values = form.getlist(key)  # type: ignore[attr-defined]
+        else:
+            value = form.get(key, "")
+            values = value if isinstance(value, (list, tuple)) else [value]
+        return [str(value).strip() for value in values if str(value).strip()]
+
+    def form_value(key: str, default: str = "") -> str:
+        value = form.get(key, default)
+        if isinstance(value, (list, tuple)):
+            value = value[0] if value else default
+        return str(value).strip()
+
+    dqths_by_ticket: dict[int, list[DispatchDqth]] = {}
+    sos_by_ticket: dict[int, list[DispatchSo]] = {}
     for ticket in result.tickets:
-        dqth_choice = str(form.get(f"dqth_match_{ticket.index}", "")).strip()
-        so_choice = str(form.get(f"so_match_{ticket.index}", "")).strip()
-        chosen_dqth = None
-        chosen_so = None
-        if dqth_choice.isdigit():
-            dqth_index = int(dqth_choice)
-            if 0 <= dqth_index < len(result.dqths):
-                chosen_dqth = result.dqths[dqth_index]
-        if so_choice.isdigit():
-            so_index = int(so_choice)
-            if 0 <= so_index < len(result.sos):
-                chosen_so = result.sos[so_index]
-        dqth_by_ticket[ticket.index] = chosen_dqth
-        so_by_ticket[ticket.index] = chosen_so
+        dqth_choices = form_values(f"dqth_match_{ticket.index}")
+        so_choices = form_values(f"so_match_{ticket.index}")
+        if len(dqth_choices) == 1 and ticket.dqths and dqth_choices[0].isdigit():
+            current_primary_index = result.dqths.index(ticket.dqths[0]) if ticket.dqths[0] in result.dqths else -1
+            if int(dqth_choices[0]) == current_primary_index:
+                dqths_by_ticket[ticket.index] = list(ticket.dqths)
+            else:
+                dqths_by_ticket[ticket.index] = []
+        else:
+            dqths_by_ticket[ticket.index] = []
+        if len(so_choices) == 1 and ticket.sos and so_choices[0].isdigit():
+            current_primary_index = result.sos.index(ticket.sos[0]) if ticket.sos[0] in result.sos else -1
+            if int(so_choices[0]) == current_primary_index:
+                sos_by_ticket[ticket.index] = list(ticket.sos)
+            else:
+                sos_by_ticket[ticket.index] = []
+        else:
+            sos_by_ticket[ticket.index] = []
+
+        for dqth_choice in dqth_choices:
+            if dqth_choice.isdigit():
+                dqth_index = int(dqth_choice)
+                if 0 <= dqth_index < len(result.dqths) and result.dqths[dqth_index] not in dqths_by_ticket[ticket.index]:
+                    dqths_by_ticket[ticket.index].append(result.dqths[dqth_index])
+        for so_choice in so_choices:
+            if so_choice.isdigit():
+                so_index = int(so_choice)
+                if 0 <= so_index < len(result.sos) and result.sos[so_index] not in sos_by_ticket[ticket.index]:
+                    sos_by_ticket[ticket.index].append(result.sos[so_index])
 
     for dqth in result.dqths:
         dqth.matched_ticket_index = None
@@ -1280,20 +1751,22 @@ def resolve_assignments(result: DispatchParseResult, form: dict[str, Any]) -> No
         so.matched_ticket_index = None
 
     for ticket in result.tickets:
-        ticket.dqth = dqth_by_ticket[ticket.index]
-        ticket.so = so_by_ticket[ticket.index]
-        if ticket.dqth:
-            ticket.dqth.matched_ticket_index = ticket.index - 1
-        if ticket.so:
-            ticket.so.matched_ticket_index = ticket.index - 1
+        ticket.dqths = dqths_by_ticket[ticket.index]
+        ticket.dqth = ticket.dqths[0] if ticket.dqths else None
+        ticket.sos = sos_by_ticket[ticket.index]
+        ticket.so = ticket.sos[0] if ticket.sos else None
+        for dqth in ticket.dqths:
+            dqth.matched_ticket_index = ticket.index - 1
+        for so in ticket.sos:
+            so.matched_ticket_index = ticket.index - 1
 
     apply_attachment_names(result.tickets, result.dqths, result.sos)
 
     for ticket in result.tickets:
         if ticket.dqth:
-            ticket.dqth.final_name = form.get(f"dqth_name_{ticket.index}", ticket.dqth.final_name).strip() or ticket.dqth.final_name
+            ticket.dqth.final_name = form_value(f"dqth_name_{ticket.index}", ticket.dqth.final_name) or ticket.dqth.final_name
         if ticket.so:
-            ticket.so.final_name = form.get(f"so_name_{ticket.index}", ticket.so.final_name).strip() or ticket.so.final_name
+            ticket.so.final_name = form_value(f"so_name_{ticket.index}", ticket.so.final_name) or ticket.so.final_name
     refresh_dispatch_match_status(result)
 
 
@@ -1337,7 +1810,7 @@ def build_dispatch_body_html(result: DispatchParseResult, arrival_hour: str, tru
         "<p style=\"margin:0 0 12px 0; font-size:15px;\">另外请注意交仓要求和时间，谢谢。<span style=\"color:#ff0000;\">（注意伟创力的发票不可拿去交仓，装箱单发票仅供仓库核对货）</span></p>",
     ]
     numerals = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四", "十五"]
-    for idx, ticket in enumerate(result.tickets, start=1):
+    for idx, ticket in enumerate(dispatch_active_tickets(result), start=1):
         label = numerals[idx - 1] if idx - 1 < len(numerals) else str(idx)
         cid = image_cids.get(ticket.index, "")
         sections.append("<p style=\"margin:0; font-size:29px; line-height:1.1;\">--------------------------------</p>" if idx > 1 else "")
@@ -1365,7 +1838,7 @@ def build_dispatch_body_text(result: DispatchParseResult, arrival_hour: str, tru
         "",
     ]
     numerals = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四", "十五"]
-    for idx, ticket in enumerate(result.tickets, start=1):
+    for idx, ticket in enumerate(dispatch_active_tickets(result), start=1):
         label = numerals[idx - 1] if idx - 1 < len(numerals) else str(idx)
         entry_lines = [
             f"{label}：{build_dispatch_ticket_title(ticket)}交{ticket.warehouse_code}仓：{ticket.address}",
@@ -1400,11 +1873,12 @@ def generate_dispatch_eml(
     from_email: str,
 ) -> str:
     save_dispatch_settings(to_email=to_email, cc_email=cc_email, from_email=from_email)
-    total_pallets = sum((ticket.pallets for ticket in result.tickets), Decimal("0"))
+    active_tickets = dispatch_active_tickets(result)
+    total_pallets = sum((ticket.pallets for ticket in active_tickets), Decimal("0"))
     subject = build_dispatch_subject(tracking_no, total_pallets, arrival_day, arrival_hour)
     image_cids = {
         ticket.index: make_msgid(domain="dispatch.local")[1:-1]
-        for ticket in result.tickets
+        for ticket in active_tickets
         if (getattr(ticket, "email_image_path", None) or ticket.table_image_path)
     }
     message = EmailMessage(policy=policy.SMTP)
@@ -1418,7 +1892,7 @@ def generate_dispatch_eml(
     message.set_content(build_dispatch_body_text(result, arrival_hour, truck_plate))
     message.add_alternative(build_dispatch_body_html(result, arrival_hour, truck_plate, image_cids), subtype="html")
     html_part = message.get_payload()[-1]
-    for ticket in result.tickets:
+    for ticket in active_tickets:
         cid = image_cids.get(ticket.index)
         image_path = getattr(ticket, "email_image_path", None) or ticket.table_image_path
         if cid and image_path and image_path.exists():
@@ -1427,13 +1901,13 @@ def generate_dispatch_eml(
     if result.master:
         add_file_attachment(message, result.master.stored_path, result.master.original_name)
     used_names: set[str] = set()
-    for ticket in result.tickets:
-        if ticket.dqth:
-            name = unique_filename(ticket.dqth.final_name, used_names)
-            add_file_attachment(message, ticket.dqth.attachment.stored_path, name)
-        if ticket.so:
-            name = unique_filename(ticket.so.final_name, used_names)
-            add_file_attachment(message, ticket.so.attachment.stored_path, name)
+    for ticket in active_tickets:
+        for dqth in ticket_dqths(ticket):
+            name = unique_filename(dqth.final_name, used_names)
+            add_file_attachment(message, dqth.attachment.stored_path, name)
+        for so in ticket_sos(ticket):
+            name = unique_filename(so.final_name, used_names)
+            add_file_attachment(message, so.attachment.stored_path, name)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(message.as_bytes())
     return subject

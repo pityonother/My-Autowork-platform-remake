@@ -23,11 +23,11 @@ from app.modules.dispatch_mail.legacy_adapter import (
 )
 
 
-def parse_customer_email(customer_eml: UploadFile) -> str:
+def parse_customer_email(customer_eml: UploadFile, *, rule_profile: str = "auto") -> str:
     session_id = uuid.uuid4().hex[:12]
     eml_path = save_upload(session_id, customer_eml, "dispatch_customer")
     with timed_step("dispatch_mail.parse_customer_email"):
-        result = parse_dispatch_eml(session_id, eml_path, UPLOAD_DIR, OUTPUT_DIR)
+        result = parse_dispatch_eml(session_id, eml_path, UPLOAD_DIR, OUTPUT_DIR, rule_profile=rule_profile)
     SESSION_STORE[session_id] = {"dispatch_result": result}
     return session_id
 

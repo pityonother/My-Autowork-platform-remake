@@ -48,7 +48,8 @@
                     <a class="secondary-btn" target="_blank" href="/modules/dispatch-mail/source/{{ session_id }}/master/0">查看 Tan# 总表原文件</a>
                     {% endif %}
                     <span class="status-chip success">共 {{ result.tickets|length }} 票</span>
-                    <span class="status-chip {% if result.unmatched_dqths %}warn{% else %}success{% endif %}">未匹配 DQT {{ result.unmatched_dqths|length }}</span>
+                    <span class="status-chip info">最终邮件 {{ active_tickets|length }} 票</span>
+                    <span class="status-chip {% if result.unmatched_dqths %}warn{% else %}success{% endif %}">未匹配 PL {{ result.unmatched_dqths|length }}</span>
                     <span class="status-chip {% if result.unmatched_sos %}warn{% else %}success{% endif %}">未匹配交仓 {{ result.unmatched_sos|length }}</span>
                 </div>
             </header>
@@ -56,7 +57,7 @@
 
         <section class="dispatch-match-cards">
             {% for ticket in result.tickets %}
-            <article class="panel dispatch-match-card {% if not ticket.dqth or not ticket.so %}is-warn{% endif %}">
+            <article class="panel dispatch-match-card {% if ticket.include_in_dispatch and not ticket.dqths %}is-warn{% endif %}">
                 <header class="dispatch-match-card-head">
                     <div>
                         <p class="dispatch-ticket-order">第 {{ ticket.index }} 票</p>
@@ -72,9 +73,12 @@
                     <div class="dispatch-match-badges">
                         <span class="status-chip">{{ display_number(ticket.pallets) }} 板</span>
                         <span class="status-chip">{{ display_number(ticket.cartons) }} 箱</span>
-                        <span class="status-chip {% if ticket.dqth and ticket.so %}success{% else %}warn{% endif %}">
-                            {% if ticket.dqth and ticket.so %}匹配完整{% else %}待补文件{% endif %}
+                        <span class="status-chip {% if not ticket.include_in_dispatch %}neutral{% elif ticket.dqths %}success{% else %}warn{% endif %}">
+                            {% if not ticket.include_in_dispatch %}拼车跳过{% elif ticket.dqths %}PL已匹配{% else %}待补PL{% endif %}
                         </span>
+                        {% if ticket.match_exempt_reason %}
+                        <span class="status-chip neutral">{{ ticket.match_exempt_reason }}</span>
+                        {% endif %}
                     </div>
                 </header>
 
@@ -97,11 +101,11 @@
                         <section class="dispatch-match-attachment" data-kind="dqth" data-load-label="{{ dispatch_load_label(ticket) }}" data-fixed-order="{{ ticket.dqth_expected_order or '' }}">
                             <div class="dispatch-match-block-head">
                                 <div>
-                                    <h3>DQT 装箱单</h3>
-                                    <p class="hint">补录后会按“{{ dispatch_load_label(ticket) }}装箱单(顺序号)”自动命名。</p>
+                                    <h3>PL / 装箱单</h3>
+                                    <p class="hint">FLEX/RTX 规则允许一票多个 PL；补录后会按“{{ dispatch_load_label(ticket) }}装箱单(顺序号)”自动命名。</p>
                                 </div>
-                                <span class="status-chip {% if ticket.dqth %}success{% else %}warn{% endif %}">
-                                    {% if ticket.dqth %}已匹配{% else %}待匹配{% endif %}
+                                <span class="status-chip {% if ticket.dqths %}success{% else %}warn{% endif %}">
+                                    {% if ticket.dqths %}已匹配 {{ ticket.dqths|length }} 个{% else %}待匹配{% endif %}
                                 </span>
                             </div>
 
@@ -115,7 +119,7 @@
                                 >
                                     <option value="">暂不绑定</option>
                                     {% for dqth in result.dqths %}
-                                    {% if dqth.matched_ticket_index is none or ticket.dqth is sameas dqth %}
+                                    {% if dqth.matched_ticket_index is none or dqth in ticket.dqths %}
                                     <option
                                         value="{{ loop.index0 }}"
                                         data-preview-href="/modules/dispatch-mail/source/{{ session_id }}/dqth/{{ dqth.preview_index }}"
@@ -130,7 +134,13 @@
                             </label>
 
                             <div class="dispatch-current-source">
-                                <span class="cell-subtle js-selected-name">{{ ticket.dqth.attachment.original_name if ticket.dqth else '当前未选择文件' }}</span>
+                                <span class="cell-subtle js-selected-name">
+                                    {% if ticket.dqths %}
+                                    {{ ticket.dqths|map(attribute='attachment.original_name')|join('；') }}
+                                    {% else %}
+                                    当前未选择文件
+                                    {% endif %}
+                                </span>
                                 <div class="dispatch-source-actions">
                                     <a
                                         class="secondary-link js-preview-link {% if not ticket.dqth %}is-disabled{% endif %}"
@@ -181,6 +191,18 @@
                                     placeholder="默认会跟随上面的规则命名，你也可以手工修改"
                                 >
                             </label>
+                            {% if ticket.dqths|length > 1 %}
+                            <div class="dispatch-rule-box">
+                                <div>
+                                    <span class="dispatch-rule-label">本票已匹配多个 PL</span>
+                                    <strong>
+                                        {% for dqth in ticket.dqths %}
+                                        {{ dqth.suggested_name or dqth.attachment.original_name }}{% if not loop.last %}；{% endif %}
+                                        {% endfor %}
+                                    </strong>
+                                </div>
+                            </div>
+                            {% endif %}
                         </section>
 
                         <section class="dispatch-match-attachment" data-kind="so" data-load-label="{{ dispatch_load_label(ticket) }}" data-fixed-order="{{ ticket.so_expected_order or '' }}">
@@ -189,8 +211,8 @@
                                     <h3>交仓文件</h3>
                                     <p class="hint">补录后会按“{{ dispatch_load_label(ticket) }}交仓文件(顺序号)”自动命名。</p>
                                 </div>
-                                <span class="status-chip {% if ticket.so %}success{% else %}warn{% endif %}">
-                                    {% if ticket.so %}已匹配{% else %}待匹配{% endif %}
+                                <span class="status-chip {% if ticket.sos %}success{% else %}warn{% endif %}">
+                                    {% if ticket.sos %}已匹配 {{ ticket.sos|length }} 个{% else %}待匹配{% endif %}
                                 </span>
                             </div>
 
@@ -204,7 +226,7 @@
                                 >
                                     <option value="">暂不绑定</option>
                                     {% for so in result.sos %}
-                                    {% if so.matched_ticket_index is none or ticket.so is sameas so %}
+                                    {% if so.matched_ticket_index is none or so in ticket.sos %}
                                     <option
                                         value="{{ loop.index0 }}"
                                         data-preview-href="/modules/dispatch-mail/source/{{ session_id }}/so/{{ so.preview_index }}"
@@ -219,7 +241,13 @@
                             </label>
 
                             <div class="dispatch-current-source">
-                                <span class="cell-subtle js-selected-name">{{ ticket.so.attachment.original_name if ticket.so else '当前未选择文件' }}</span>
+                                <span class="cell-subtle js-selected-name">
+                                    {% if ticket.sos %}
+                                    {{ ticket.sos|map(attribute='attachment.original_name')|join('；') }}
+                                    {% else %}
+                                    当前未选择文件
+                                    {% endif %}
+                                </span>
                                 <div class="dispatch-source-actions">
                                     <a
                                         class="secondary-link js-preview-link {% if not ticket.so %}is-disabled{% endif %}"
@@ -270,6 +298,18 @@
                                     placeholder="默认会跟随上面的规则命名，你也可以手工修改"
                                 >
                             </label>
+                            {% if ticket.sos|length > 1 %}
+                            <div class="dispatch-rule-box">
+                                <div>
+                                    <span class="dispatch-rule-label">本票已匹配多个交仓文件</span>
+                                    <strong>
+                                        {% for so in ticket.sos %}
+                                        {{ so.suggested_name or so.attachment.original_name }}{% if not loop.last %}；{% endif %}
+                                        {% endfor %}
+                                    </strong>
+                                </div>
+                            </div>
+                            {% endif %}
                         </section>
                     </div>
                 </div>
@@ -280,7 +320,7 @@
         <section class="grid two dispatch-unmatched-grid">
             <article class="panel dispatch-unmatched-panel">
                 <header class="dispatch-subpanel-head">
-                    <h2>未匹配 DQT</h2>
+                    <h2>未匹配 PL / 装箱单</h2>
                     <span class="status-chip {% if result.unmatched_dqths %}warn{% else %}success{% endif %}">{{ result.unmatched_dqths|length }}</span>
                 </header>
                 {% if result.unmatched_dqths %}
@@ -299,7 +339,7 @@
                     {% endfor %}
                 </ul>
                 {% else %}
-                <p class="empty">没有未匹配 DQT。</p>
+                <p class="empty">没有未匹配 PL / 装箱单。</p>
                 {% endif %}
             </article>
 

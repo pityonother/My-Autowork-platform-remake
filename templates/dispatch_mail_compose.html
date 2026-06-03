@@ -36,8 +36,8 @@
                 <p class="hint">这里展示主题和正文开头的实时变化，预览横向铺开，不再挤在右侧小栏里。</p>
             </div>
             <div class="dispatch-preview-metrics">
-                <span class="status-chip neutral">{{ result.tickets|length }} 票</span>
-                <span class="status-chip info">{{ result.tickets|sum(attribute="pallets") }} 板</span>
+                <span class="status-chip neutral">{{ active_tickets|length }} 票</span>
+                <span class="status-chip info">{{ active_tickets|sum(attribute="pallets") }} 板</span>
             </div>
         </div>
         <div class="dispatch-preview-strip">
@@ -124,11 +124,11 @@
                     <h2>仓库地址与注意事项</h2>
                     <p class="hint">每一票总表截图、文件引用和仓库信息集中在同一张卡片里。</p>
                 </div>
-                <span class="status-chip neutral">{{ result.tickets|length }} 票待确认</span>
+                <span class="status-chip neutral">{{ active_tickets|length }} 票待确认</span>
             </header>
 
             <div class="dispatch-ticket-forms">
-                {% for ticket in result.tickets %}
+                {% for ticket in active_tickets %}
                 <article class="dispatch-ticket-form">
                     <header class="dispatch-ticket-head">
                         <div>
@@ -153,8 +153,14 @@
 
                         <div class="dispatch-attachment-reference">
                             <div class="dispatch-attachment-reference-item">
-                                <span class="dispatch-attachment-reference-label">DQT 装箱单</span>
-                                <strong>{{ ticket.dqth.attachment.original_name if ticket.dqth else '当前未绑定' }}</strong>
+                                <span class="dispatch-attachment-reference-label">PL / 装箱单</span>
+                                <strong>
+                                    {% if ticket.dqths %}
+                                    {{ ticket.dqths|map(attribute='attachment.original_name')|join('；') }}
+                                    {% else %}
+                                    当前未绑定
+                                    {% endif %}
+                                </strong>
                                 {% if ticket.dqth %}
                                 <div class="dispatch-source-actions">
                                     <a class="secondary-link" href="/modules/dispatch-mail/source/{{ session_id }}/dqth/{{ ticket.dqth.preview_index }}" target="_blank">查看预览</a>
@@ -164,7 +170,13 @@
                             </div>
                             <div class="dispatch-attachment-reference-item">
                                 <span class="dispatch-attachment-reference-label">交仓文件</span>
-                                <strong>{{ ticket.so.attachment.original_name if ticket.so else '当前未绑定' }}</strong>
+                                <strong>
+                                    {% if ticket.sos %}
+                                    {{ ticket.sos|map(attribute='attachment.original_name')|join('；') }}
+                                    {% else %}
+                                    当前未绑定
+                                    {% endif %}
+                                </strong>
                                 {% if ticket.so %}
                                 <div class="dispatch-source-actions">
                                     <a class="secondary-link" href="/modules/dispatch-mail/source/{{ session_id }}/so/{{ ticket.so.preview_index }}" target="_blank">查看预览</a>
@@ -235,7 +247,7 @@
         var day = val('arrival_day') || 'Y';
         var hour = val('arrival_hour') || 'N';
         var plate = val('truck_plate') || 'AAA';
-        var total = '{{ result.tickets|sum(attribute="pallets") }}';
+        var total = '{{ active_tickets|sum(attribute="pallets") }}';
         var previewHour = formatHour(hour);
 
         subject.textContent = tracking + ' 伟创力出口' + total + '板，预计' + day + '号' + hour + '点前到倉庫 貨物到倉庫有扁箱請第一時間拍照通知，謝謝';

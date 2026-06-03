@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app.modules.dispatch_mail import repository
@@ -36,7 +36,11 @@ async def dispatch_mail_page(request: Request) -> HTMLResponse:
 
 
 @router.post("/modules/dispatch-mail/parse")
-async def parse_dispatch_mail(request: Request, customer_eml: UploadFile = File(...)) -> Response:
+async def parse_dispatch_mail(
+    request: Request,
+    customer_eml: UploadFile = File(...),
+    rule_profile: str = Form("auto"),
+) -> Response:
     if not customer_eml.filename:
         return templates.TemplateResponse(
             request,
@@ -45,7 +49,7 @@ async def parse_dispatch_mail(request: Request, customer_eml: UploadFile = File(
             status_code=400,
         )
     try:
-        session_id = parse_customer_email(customer_eml)
+        session_id = parse_customer_email(customer_eml, rule_profile=rule_profile)
     except Exception as exc:  # noqa: BLE001
         return templates.TemplateResponse(request, "dispatch_mail.html", {"error": str(exc)}, status_code=400)
     return RedirectResponse(url=f"/modules/dispatch-mail/preview/{session_id}", status_code=303)
@@ -166,6 +170,7 @@ async def dispatch_mail_preview(request: Request, session_id: str, saved: int = 
         {
             "session_id": session_id,
             "result": result,
+            "active_tickets": [ticket for ticket in result.tickets if ticket.include_in_dispatch],
             "saved": bool(saved),
             "dispatch_load_label": dispatch_load_label,
             "display_number": display_number,
@@ -178,7 +183,7 @@ async def update_dispatch_mail_preview(request: Request, session_id: str) -> Red
     result = get_dispatch_session(session_id)
     form = await request.form()
     form_dict = dict(form)
-    resolve_assignments(result, form_dict)
+    resolve_assignments(result, form)
     action = str(form_dict.get("action", "next")).strip().lower()
     if action == "save":
         return RedirectResponse(url=f"/modules/dispatch-mail/preview/{session_id}?saved=1", status_code=303)
@@ -244,6 +249,7 @@ async def dispatch_mail_compose(request: Request, session_id: str) -> HTMLRespon
         {
             "session_id": session_id,
             "result": result,
+            "active_tickets": [ticket for ticket in result.tickets if ticket.include_in_dispatch],
             "settings": repository.get_dispatch_settings(),
             "error": "",
         },
@@ -295,6 +301,7 @@ async def generate_dispatch_mail(request: Request, session_id: str) -> Response:
             {
                 "session_id": session_id,
                 "result": result,
+                "active_tickets": [ticket for ticket in result.tickets if ticket.include_in_dispatch],
                 "settings": repository.get_dispatch_settings(),
                 "error": str(exc),
             },

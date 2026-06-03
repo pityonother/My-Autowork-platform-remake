@@ -36,6 +36,14 @@
             <span class="status-chip info">解析 + 改名预览</span>
         </header>
         <form action="/modules/dispatch-mail/parse" method="post" enctype="multipart/form-data" class="dispatch-upload-form">
+            <label class="field">
+                <span>解析规则</span>
+                <select name="rule_profile">
+                    <option value="auto" selected>自动识别（推荐）</option>
+                    <option value="generic">通用 DQT / SO 规则</option>
+                    <option value="flex_rtx">FLEX / RTX 专属规则</option>
+                </select>
+            </label>
             <label class="dispatch-dropzone">
                 <input type="file" name="customer_eml" accept=".eml" required>
                 <span class="ufo-dropzone-icon" aria-hidden="true">↑</span>

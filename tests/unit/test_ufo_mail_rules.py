@@ -300,3 +300,22 @@ def test_generate_mail_from_saved_session_reuses_uploads_after_review_confirmati
 
     assert output_path.name == f"UFO26052201_{session_id}.eml"
     assert output_path.read_text(encoding="utf-8") == "UFO26052201.pdf"
+
+
+def test_ufo_mail_settings_survive_db_initializer(monkeypatch, tmp_path) -> None:
+    import ufo_mail_store
+
+    monkeypatch.setattr(ufo_mail_store, "DB_PATH", tmp_path / "ufo_mail.db")
+
+    ufo_mail_store.save_ufo_mail_settings(
+        to_email="to@example.com",
+        cc_email="cc@example.com",
+        from_email="from@example.com",
+    )
+    ufo_mail_store.init_ufo_db()
+
+    assert ufo_mail_store.get_ufo_mail_settings() == {
+        "to_email": "to@example.com",
+        "cc_email": "cc@example.com",
+        "from_email": "from@example.com",
+    }

@@ -69,3 +69,12 @@ def test_module_specific_css_is_not_left_in_global_stylesheet() -> None:
     leftovers = [prefix for prefix in disallowed if prefix in text]
 
     assert leftovers == []
+
+
+def test_ufo_settings_save_button_bypasses_generate_form_validation() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    text = (project_root / "templates" / "ufo_mail.html").read_text(encoding="utf-8")
+    button_start = text.index('formaction="/modules/ufo-mail/settings"')
+    button_end = text.index(">", button_start)
+
+    assert "formnovalidate" in text[button_start:button_end]

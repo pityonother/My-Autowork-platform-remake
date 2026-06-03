@@ -1041,6 +1041,12 @@ $template = '{output_literal}'
 $jsonPath = '{json_literal}'
 $resultPath = '{result_literal}'
 $rows = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
+$excel = $null
+$wb = $null
+$ws = $null
+$processedIds = New-Object System.Collections.Generic.List[int]
+$closeWithSave = $false
+try {{
 $excel = New-Object -ComObject Excel.Application
 $excel.Visible = $false
 $excel.DisplayAlerts = $false
@@ -1096,7 +1102,6 @@ for ($rowIndex = $startRow; $rowIndex -lt $insertBeforeRow; $rowIndex++) {{
     }}
 }}
 $sampleRow = if ($lastDataRow -ge $startRow) {{ $lastDataRow }} else {{ $startRow }}
-$processedIds = New-Object System.Collections.Generic.List[int]
 
 foreach ($row in @($rows)) {{
     if ($blankRows.Count -gt 0) {{
@@ -1143,13 +1148,25 @@ if ($totalRow -ge $totalFormulaStartRow) {{
     }}
 }}
 
-$excel.CutCopyMode = 0
 $wb.Save()
-$wb.Close($true)
-$excel.Quit()
-[System.Runtime.Interopservices.Marshal]::ReleaseComObject($ws) | Out-Null
-[System.Runtime.Interopservices.Marshal]::ReleaseComObject($wb) | Out-Null
-[System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null
+$closeWithSave = $true
+}} finally {{
+    if ($null -ne $wb) {{
+        try {{ $wb.Close($closeWithSave) }} catch {{ }}
+    }}
+    if ($null -ne $excel) {{
+        try {{ $excel.Quit() }} catch {{ }}
+    }}
+    if ($null -ne $ws) {{
+        try {{ [System.Runtime.Interopservices.Marshal]::ReleaseComObject($ws) | Out-Null }} catch {{ }}
+    }}
+    if ($null -ne $wb) {{
+        try {{ [System.Runtime.Interopservices.Marshal]::ReleaseComObject($wb) | Out-Null }} catch {{ }}
+    }}
+    if ($null -ne $excel) {{
+        try {{ [System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null }} catch {{ }}
+    }}
+}}
 [PSCustomObject]@{{ processed_ids = @($processedIds) }} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $resultPath -Encoding UTF8
 """
     try:

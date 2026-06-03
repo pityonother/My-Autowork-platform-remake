@@ -49,42 +49,47 @@ def pick_final_attachment_name(
 
 
 def apply_attachment_names(tickets: list[Any], dqths: list[Any], sos: list[Any]) -> None:
-    load_counts: dict[str, int] = {}
+    dqth_load_counts: dict[str, int] = {}
+    so_load_counts: dict[str, int] = {}
     for ticket in tickets:
         load_text = dispatch_load_label(ticket)
-        order = load_counts.get(load_text, 0) + 1
-        load_counts[load_text] = order
-        ticket.dqth_expected_order = order
-        ticket.so_expected_order = order
-        if ticket.dqth:
+        matched_dqths = getattr(ticket, "dqths", None) or ([ticket.dqth] if getattr(ticket, "dqth", None) else [])
+        matched_sos = getattr(ticket, "sos", None) or ([ticket.so] if getattr(ticket, "so", None) else [])
+        ticket.dqth_expected_order = dqth_load_counts.get(load_text, 0) + 1
+        ticket.so_expected_order = so_load_counts.get(load_text, 0) + 1
+        for dqth in matched_dqths:
+            order = dqth_load_counts.get(load_text, 0) + 1
+            dqth_load_counts[load_text] = order
             name = build_dispatch_attachment_name(
                 load_text,
                 "dqth",
                 order,
-                attachment_extension(ticket.dqth.attachment.original_name),
+                attachment_extension(dqth.attachment.original_name),
             )
-            previous_suggested_name = ticket.dqth.suggested_name
-            ticket.dqth.suggested_name = name
-            ticket.dqth.suggested_order = order
-            ticket.dqth.final_name = pick_final_attachment_name(
-                current_name=ticket.dqth.final_name,
-                original_name=ticket.dqth.attachment.original_name,
+            previous_suggested_name = dqth.suggested_name
+            dqth.suggested_name = name
+            dqth.suggested_order = order
+            dqth.final_name = pick_final_attachment_name(
+                current_name=dqth.final_name,
+                original_name=dqth.attachment.original_name,
                 previous_suggested_name=previous_suggested_name,
                 new_suggested_name=name,
             )
-        if ticket.so:
+        for so in matched_sos:
+            order = so_load_counts.get(load_text, 0) + 1
+            so_load_counts[load_text] = order
             name = build_dispatch_attachment_name(
                 load_text,
                 "so",
                 order,
-                attachment_extension(ticket.so.attachment.original_name),
+                attachment_extension(so.attachment.original_name),
             )
-            previous_suggested_name = ticket.so.suggested_name
-            ticket.so.suggested_name = name
-            ticket.so.suggested_order = order
-            ticket.so.final_name = pick_final_attachment_name(
-                current_name=ticket.so.final_name,
-                original_name=ticket.so.attachment.original_name,
+            previous_suggested_name = so.suggested_name
+            so.suggested_name = name
+            so.suggested_order = order
+            so.final_name = pick_final_attachment_name(
+                current_name=so.final_name,
+                original_name=so.attachment.original_name,
                 previous_suggested_name=previous_suggested_name,
                 new_suggested_name=name,
             )
@@ -92,14 +97,14 @@ def apply_attachment_names(tickets: list[Any], dqths: list[Any], sos: list[Any])
         if dqth.matched_ticket_index is None:
             dqth.suggested_name = ""
             dqth.suggested_order = None
-        if not dqth.final_name or dqth.final_name == dqth.suggested_name:
-            dqth.final_name = dqth.attachment.original_name
+            if not dqth.final_name or dqth.final_name == dqth.suggested_name:
+                dqth.final_name = dqth.attachment.original_name
     for so in sos:
         if so.matched_ticket_index is None:
             so.suggested_name = ""
             so.suggested_order = None
-        if not so.final_name or so.final_name == so.suggested_name:
-            so.final_name = so.attachment.original_name
+            if not so.final_name or so.final_name == so.suggested_name:
+                so.final_name = so.attachment.original_name
 
 
 __all__ = ["apply_attachment_names", "build_dispatch_attachment_name", "pick_final_attachment_name", "unique_filename"]

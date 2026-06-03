@@ -542,6 +542,11 @@ $ErrorActionPreference = 'Stop'
 $template = '{str(output_path)}'
 $jsonPath = '{str(temp_json)}'
 $rows = Get-Content -LiteralPath $jsonPath -Raw | ConvertFrom-Json
+$excel = $null
+$wb = $null
+$ws = $null
+$closeWithSave = $false
+try {{
 $excel = New-Object -ComObject Excel.Application
 $excel.Visible = $false
 $excel.DisplayAlerts = $false
@@ -638,15 +643,26 @@ for ($index = 0; $index -lt $rowsToWrite.Count; $index++) {{
     $ws.Cells.Item($targetRow, 9).Value2 = [double]$row.smooth_handling
     $ws.Cells.Item($targetRow, 10).Formula = $sampleFormula.Replace('G7', 'G' + $targetRow)
 }}
-$excel.CutCopyMode = 0
-
 $wb.Save()
-$wb.Close($true)
-$excel.Quit()
-[System.Runtime.Interopservices.Marshal]::ReleaseComObject($ws) | Out-Null
-[System.Runtime.Interopservices.Marshal]::ReleaseComObject($wb) | Out-Null
-[System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null
-Remove-Item -LiteralPath $jsonPath -Force
+$closeWithSave = $true
+}} finally {{
+    if ($null -ne $wb) {{
+        try {{ $wb.Close($closeWithSave) }} catch {{ }}
+    }}
+    if ($null -ne $excel) {{
+        try {{ $excel.Quit() }} catch {{ }}
+    }}
+    if ($null -ne $ws) {{
+        try {{ [System.Runtime.Interopservices.Marshal]::ReleaseComObject($ws) | Out-Null }} catch {{ }}
+    }}
+    if ($null -ne $wb) {{
+        try {{ [System.Runtime.Interopservices.Marshal]::ReleaseComObject($wb) | Out-Null }} catch {{ }}
+    }}
+    if ($null -ne $excel) {{
+        try {{ [System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null }} catch {{ }}
+    }}
+    Remove-Item -LiteralPath $jsonPath -Force -ErrorAction SilentlyContinue
+}}
 """
     try:
         temp_json.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
