@@ -34,6 +34,16 @@ def open_review_tiff(path: Path) -> None:
     raise RuntimeError("当前系统不是 Windows，无法调用 Windows 照片查看器。")
 
 
+def tiff_review_url(preview: BookingPreview | None) -> str:
+    if preview is None or preview.supplier not in eml_pdf_suppliers():
+        return ""
+    session = SESSION_STORE.get(preview.session_id, {})
+    tiff_path = Path(str(session.get("booking_pdf_tiff_path") or ""))
+    if not tiff_path.is_file():
+        return ""
+    return f"/modules/booking/flex-texas-review-tiff/{preview.session_id}"
+
+
 def locked_supplier() -> str:
     supplier = os.environ.get(LOCK_SUPPLIER_ENV_VAR, "").strip()
     return supplier if supplier in available_suppliers() else ""
@@ -67,6 +77,7 @@ def booking_page_context(
         "preview": preview,
         "error": error,
         "warehouse_mail_ready": warehouse_mail_ready,
+        "tiff_review_url": tiff_review_url(preview),
     }
 
 
@@ -116,8 +127,9 @@ async def preview_booking(
         try:
             tiff_path = OUTPUT_DIR / f"flex_texas_pdf_review_{preview_session.session_id}.tif"
             export_flex_texas_source_pdf_tiff(preview_session.customer_eml_path, tiff_path)
-            open_review_tiff(tiff_path)
             SESSION_STORE[preview_session.session_id]["booking_pdf_tiff_path"] = str(tiff_path)
+            if os.name == "nt":
+                open_review_tiff(tiff_path)
         except Exception as exc:  # noqa: BLE001
             preview_session.preview.warnings.append(f"PDF 转 TIF 或打开 Windows 照片查看器失败：{exc}")
     if auto_generate == "1" and supplier not in eml_pdf_suppliers() and preview_session.preview.can_generate:
@@ -162,6 +174,15 @@ async def generate_booking(session_id: str) -> FileResponse:
 @router.get("/modules/booking/generate/{session_id}")
 async def download_booking(session_id: str) -> FileResponse:
     return generate_booking_file_response(session_id)
+
+
+@router.get("/modules/booking/flex-texas-review-tiff/{session_id}")
+async def download_flex_texas_review_tiff(session_id: str) -> FileResponse:
+    session = SESSION_STORE.get_required(session_id)
+    tiff_path = Path(str(session.get("booking_pdf_tiff_path") or ""))
+    if not tiff_path.is_file():
+        raise HTTPException(status_code=404, detail="未找到 Flex-Texas PDF 转出的 TIF 核对图。")
+    return FileResponse(tiff_path, filename=tiff_path.name, media_type="image/tiff")
 
 
 def generate_booking_file_response(session_id: str) -> FileResponse:

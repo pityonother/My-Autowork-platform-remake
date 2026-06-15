@@ -67,3 +67,24 @@ def test_normalize_yolo_device_supports_auto_and_explicit_devices() -> None:
     assert normalize_yolo_device("cpu") == "cpu"
     assert normalize_yolo_device("mps") == "mps"
     assert normalize_yolo_device("0") == "0"
+
+
+def test_first_page_ufo_number_uses_legible_calibrated_fonts() -> None:
+    from app.modules.ufo_mail.cover_processor import FIRST_PAGE_FONT_SIZE_BY_NAME
+
+    assert FIRST_PAGE_FONT_SIZE_BY_NAME["pod_entry_no"] >= 68
+    assert FIRST_PAGE_FONT_SIZE_BY_NAME["pod_top_barcode_text"] >= 52
+
+
+def test_fit_font_size_keeps_calibrated_ufo_text_inside_cover_box() -> None:
+    from app.modules.ufo_mail.cover_processor import fallback_first_page_replacements, fit_font_size_to_box
+    from PIL import Image
+
+    image = Image.new("RGB", (2458, 3473), "white")
+    replacements = fallback_first_page_replacements(image)
+
+    entry = replacements["pod_entry_no"]
+    barcode = replacements["pod_top_barcode_text"]
+
+    assert fit_font_size_to_box(text="UFO26061501", box=entry.box, anchor=entry.anchor, font_size=entry.font_size) >= 60
+    assert fit_font_size_to_box(text="UFO26061501", box=barcode.box, anchor=barcode.anchor, font_size=barcode.font_size) >= 48

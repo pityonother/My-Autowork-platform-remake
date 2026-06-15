@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 from PIL import Image
 
+from app.modules.booking.schemas import BookingPreview
 from booking_web_app import app as booking_app
 from app.modules.booking import routes as booking_routes
 from app.modules.booking.flex_texas import (
@@ -240,6 +241,7 @@ def test_booking_preview_opens_flex_texas_pdf_as_tiff_instead_of_thumbnail(monke
     assert 'name="body_text"' in response.text
     assert 'class="booking-field-records"' in response.text
     assert 'class="booking-table"' not in response.text
+    assert "data-auto-tiff-download" in response.text
     assert "Windows 照片查看器" in response.text
     assert 'data-pdf-review' not in response.text
     assert "/modules/booking/pdf-preview/" not in response.text
@@ -266,6 +268,75 @@ def test_booking_preview_opens_flex_texas_pdf_as_tiff_instead_of_thumbnail(monke
     post_generate_response = client.post(f"/modules/booking/generate/{generate_match.group(1)}")
     assert post_generate_response.status_code == 200
     assert post_generate_response.content.startswith(b"PK")
+
+
+def test_booking_preview_exposes_tiff_download_when_server_is_not_windows(monkeypatch) -> None:
+    eml_path = _sample_eml("4711941716")
+    client = TestClient(booking_app)
+    opened_paths: list[Path] = []
+
+    monkeypatch.setattr(booking_routes.os, "name", "posix")
+    monkeypatch.setattr(booking_routes, "open_review_tiff", lambda path: opened_paths.append(path))
+
+    response = client.post(
+        "/modules/booking/preview",
+        data={"supplier": "FLEX-TEXAS", "auto_generate": "1"},
+        files={"customer_eml": (eml_path.name, eml_path.read_bytes(), "message/rfc822")},
+    )
+
+    assert response.status_code == 200
+    assert opened_paths == []
+    tiff_match = re.search(r'href="(/modules/booking/flex-texas-review-tiff/[^"]+)"', response.text)
+    assert tiff_match
+    assert "data-auto-tiff-download" in response.text
+
+    tiff_response = client.get(tiff_match.group(1))
+
+    assert tiff_response.status_code == 200
+    assert tiff_response.headers["content-type"].startswith("image/tiff")
+    assert "attachment;" in tiff_response.headers["content-disposition"]
+    assert tiff_response.content[:2] in {b"II", b"MM"}
+
+
+def test_flex_texas_review_tiff_download_route_returns_attachment(tmp_path: Path) -> None:
+    client = TestClient(booking_app)
+    session_id = "direct-tiff-route"
+    tiff_path = tmp_path / "review.tif"
+    Image.new("RGB", (20, 20), "white").save(tiff_path, format="TIFF")
+    booking_routes.SESSION_STORE[session_id] = {"booking_pdf_tiff_path": str(tiff_path)}
+
+    response = client.get(f"/modules/booking/flex-texas-review-tiff/{session_id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/tiff")
+    assert "attachment;" in response.headers["content-disposition"]
+    assert response.content[:2] in {b"II", b"MM"}
+
+
+def test_booking_xlsx_download_route_returns_attachment(monkeypatch, tmp_path: Path) -> None:
+    client = TestClient(booking_app)
+    session_id = "direct-xlsx-route"
+    output_path = tmp_path / "booking.xlsx"
+    output_path.write_bytes(b"PK\x03\x04synthetic-xlsx")
+    preview = BookingPreview(
+        session_id=session_id,
+        supplier="FLEX-TEXAS",
+        source_filename="source.eml",
+        pack_filename="source.pdf",
+        rows=[{"P/N": "TEST"}],
+        columns=["P/N"],
+    )
+    booking_routes.SESSION_STORE[session_id] = {"booking_preview": preview}
+    monkeypatch.setattr(booking_routes, "write_booking_output", lambda _preview: output_path)
+
+    response = client.get(f"/modules/booking/generate/{session_id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "attachment;" in response.headers["content-disposition"]
+    assert response.content.startswith(b"PK")
 
 
 def test_export_flex_texas_pdf_tiff_ignores_system_export_pdf(tmp_path: Path) -> None:

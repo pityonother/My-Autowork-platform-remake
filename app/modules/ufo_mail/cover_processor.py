@@ -37,15 +37,16 @@ FIRST_PAGE_REPLACEMENTS = [
         "name": "pod_entry_no",
         "cover": (0.243, 0.105, 0.445, 0.131),
         "text_anchor": (0.250, 0.105),
-        "font_size": 43,
+        "font_size": 68,
     },
     {
         "name": "pod_top_barcode_text",
         "cover": (0.665, 0.071, 0.878, 0.099),
         "text_anchor": (0.695, 0.072),
-        "font_size": 39,
+        "font_size": 52,
     },
 ]
+FIRST_PAGE_FONT_SIZE_BY_NAME = {str(item["name"]): int(item["font_size"]) for item in FIRST_PAGE_REPLACEMENTS}
 
 RH_CODE_PATTERN = re.compile(r"\bRH\s*\d{6,}\b", re.IGNORECASE)
 
@@ -206,9 +207,33 @@ def cover_region(image: Any, box: tuple[int, int, int, int], fill: tuple[int, in
     return fill
 
 
+def fit_font_size_to_box(
+    *,
+    text: str,
+    box: tuple[int, int, int, int],
+    anchor: tuple[int, int],
+    font_size: int,
+    min_size: int = 28,
+) -> int:
+    x1, y1, x2, y2 = box
+    _ = x1, y1
+    available_width = max(1, x2 - anchor[0])
+    available_height = max(1, y2 - anchor[1])
+    target_size = max(min_size, int(font_size))
+    for size in range(target_size, min_size - 1, -2):
+        font = load_font(size)
+        bbox = font.getbbox(text)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        if text_width <= available_width * 0.98 and text_height <= available_height * 0.95:
+            return size
+    return min_size
+
+
 def draw_ufo_text(image: Any, box: tuple[int, int, int, int], anchor: tuple[int, int], ufo_no: str, font_size: int) -> None:
     draw = ImageDraw.Draw(image)
-    draw.text(anchor, ufo_no, fill=(0, 0, 0), font=load_font(font_size))
+    fitted_size = fit_font_size_to_box(text=ufo_no, box=box, anchor=anchor, font_size=font_size)
+    draw.text(anchor, ufo_no, fill=(0, 0, 0), font=load_font(fitted_size))
 
 
 def fallback_first_page_replacements(image: Any) -> dict[str, FirstPageReplacement]:
@@ -265,7 +290,7 @@ def pdf_text_first_page_replacements(input_path: Path, image: Any) -> dict[str, 
             pad_y = max(10, (py2 - py1) * 0.35)
             box = clamp_box((px1 - pad_x, py1 - pad_y, px2 + pad_x, py2 + pad_y), width, height)
             anchor = (max(0, int(round(px1 - pad_x * 0.35))), max(0, int(round(py1 - pad_y * 0.2))))
-            font_size = int(max(24, min(52, (box[3] - box[1]) * 0.58)))
+            font_size = int(max(FIRST_PAGE_FONT_SIZE_BY_NAME.get(name, 52), min(72, (box[3] - box[1]) * 0.90)))
             replacements[name] = FirstPageReplacement(
                 name=name,
                 box=box,
@@ -350,7 +375,12 @@ def image_anchor_first_page_replacements(image: Any) -> dict[str, FirstPageRepla
                 max(0, int(round((text_component_box[0] - 5) if text_component_box else x2 + 3.20 * box_width))),
                 max(0, int(round((text_component_box[1] + 12) if text_component_box else y - 0.04 * box_height))),
             ),
-            font_size=int(max(28, min(52, (text_component_box[3] - text_component_box[1]) * 0.80 if text_component_box else box_height * 0.43))),
+            font_size=int(
+                max(
+                    FIRST_PAGE_FONT_SIZE_BY_NAME["pod_entry_no"],
+                    min(72, (text_component_box[3] - text_component_box[1]) * 1.05 if text_component_box else box_height * 0.56),
+                )
+            ),
             source="pod_entry_no_image_anchor",
         )
 
@@ -398,7 +428,7 @@ def image_anchor_first_page_replacements(image: Any) -> dict[str, FirstPageRepla
                 max(0, int(round(x1 + 0.04 * barcode_width))),
                 max(0, int(round(y2 + 0.20 * barcode_height))),
             ),
-            font_size=int(max(28, min(48, barcode_height * 0.34))),
+            font_size=int(max(FIRST_PAGE_FONT_SIZE_BY_NAME["pod_top_barcode_text"], min(60, barcode_height * 0.44))),
             source="pod_top_barcode_text_image_anchor",
         )
 

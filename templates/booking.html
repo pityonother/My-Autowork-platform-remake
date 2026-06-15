@@ -122,6 +122,9 @@
             {% elif preview.validation_error_count %}
             <span class="booking-generate-blocked">存在错误级校验，先核对后再生成</span>
             {% endif %}
+            {% if tiff_review_url %}
+            <a class="secondary-btn booking-tiff-review-link" href="{{ tiff_review_url }}" download data-auto-tiff-download>下载 / 打开 TIF 核对图</a>
+            {% endif %}
         </header>
 
         {% if preview.errors %}
@@ -418,6 +421,13 @@ Thanks & Best regards</textarea>
                 }
             });
         })(fileInputs[i]);
+    }
+
+    var tiffDownloadLink = document.querySelector('[data-auto-tiff-download]');
+    if (tiffDownloadLink) {
+        window.setTimeout(function () {
+            tiffDownloadLink.click();
+        }, 250);
     }
 
 })();
