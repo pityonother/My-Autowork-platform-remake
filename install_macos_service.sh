@@ -9,6 +9,10 @@ LOG_DIR="$ROOT_DIR/logs"
 COMPANY_TOOLS_DATA_ROOT="${COMPANY_TOOLS_DATA_ROOT:-/Users/Shared/company_tools_data}"
 RUNTIME_DIR="${MY_AUTOWORK_RUNTIME_DIR:-$COMPANY_TOOLS_DATA_ROOT/my_autowork/runtime}"
 PORT="${MY_AUTOWORK_PORT:-8010}"
+SSL_DIR="${MY_AUTOWORK_SSL_DIR:-$COMPANY_TOOLS_DATA_ROOT/my_autowork/ssl}"
+SSL_CERTFILE="${MY_AUTOWORK_SSL_CERTFILE:-$SSL_DIR/my-autowork.crt}"
+SSL_KEYFILE="${MY_AUTOWORK_SSL_KEYFILE:-$SSL_DIR/my-autowork.key}"
+SSL_CA_CERTFILE="${MY_AUTOWORK_SSL_CA_CERTFILE:-$SSL_DIR/my-autowork-local-ca.crt}"
 
 "$PYTHON_BIN" - <<'PY'
 import sys
@@ -21,8 +25,12 @@ if sys.version_info < (3, 12):
     raise SystemExit(1)
 PY
 
-mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR" "$RUNTIME_DIR"
-chmod +x "$ROOT_DIR/run_mac_lan.sh" "$ROOT_DIR/update_mac_mini.sh"
+mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR" "$RUNTIME_DIR" "$SSL_DIR"
+chmod +x "$ROOT_DIR/run_mac_lan.sh" "$ROOT_DIR/update_mac_mini.sh" "$ROOT_DIR/generate_lan_https_cert.sh"
+
+if [ ! -f "$SSL_CERTFILE" ] || [ ! -f "$SSL_KEYFILE" ] || [ ! -f "$SSL_CA_CERTFILE" ]; then
+    MY_AUTOWORK_SSL_DIR="$SSL_DIR" "$ROOT_DIR/generate_lan_https_cert.sh"
+fi
 
 cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -50,6 +58,10 @@ cat > "$PLIST" <<PLIST
         <string>$PORT</string>
         <key>MY_AUTOWORK_RUNTIME_DIR</key>
         <string>$RUNTIME_DIR</string>
+        <key>MY_AUTOWORK_SSL_CERTFILE</key>
+        <string>$SSL_CERTFILE</string>
+        <key>MY_AUTOWORK_SSL_KEYFILE</key>
+        <string>$SSL_KEYFILE</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -75,3 +87,8 @@ echo "  $LOG_DIR/my-autowork.err.log"
 echo
 echo "Check the LAN URL:"
 echo "  tail -n 40 $LOG_DIR/my-autowork.out.log"
+echo
+echo "LAN HTTPS URL:"
+echo "  https://$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo Mac-mini-IP):$PORT"
+echo "Trust this CA certificate on coworker Windows PCs:"
+echo "  $SSL_CA_CERTFILE"

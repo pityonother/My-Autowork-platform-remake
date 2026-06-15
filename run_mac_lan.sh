@@ -10,6 +10,8 @@ PORT="${MY_AUTOWORK_PORT:-8010}"
 COMPANY_TOOLS_DATA_ROOT="${COMPANY_TOOLS_DATA_ROOT:-/Users/Shared/company_tools_data}"
 RUNTIME_DIR="${MY_AUTOWORK_RUNTIME_DIR:-$COMPANY_TOOLS_DATA_ROOT/my_autowork/runtime}"
 OPEN_BROWSER="${MY_AUTOWORK_OPEN_BROWSER:-1}"
+SSL_CERTFILE="${MY_AUTOWORK_SSL_CERTFILE:-}"
+SSL_KEYFILE="${MY_AUTOWORK_SSL_KEYFILE:-}"
 
 require_python312() {
     "$PYTHON_BIN" - <<'PY'
@@ -70,8 +72,20 @@ mkdir -p "$RUNTIME_DIR" "$ROOT_DIR/logs"
 export BILL_TOOL_RUNTIME_DIR="$RUNTIME_DIR"
 
 LAN_IP="$(find_lan_ip)"
-LOCAL_URL="http://localhost:$PORT"
-LAN_URL="http://$LAN_IP:$PORT"
+SCHEME="http"
+UVICORN_SSL_ARGS=()
+if [ -n "$SSL_CERTFILE" ] || [ -n "$SSL_KEYFILE" ]; then
+    if [ ! -f "$SSL_CERTFILE" ] || [ ! -f "$SSL_KEYFILE" ]; then
+        echo "HTTPS certificate or key file was not found."
+        echo "MY_AUTOWORK_SSL_CERTFILE=$SSL_CERTFILE"
+        echo "MY_AUTOWORK_SSL_KEYFILE=$SSL_KEYFILE"
+        exit 1
+    fi
+    SCHEME="https"
+    UVICORN_SSL_ARGS=(--ssl-certfile "$SSL_CERTFILE" --ssl-keyfile "$SSL_KEYFILE")
+fi
+LOCAL_URL="$SCHEME://localhost:$PORT"
+LAN_URL="$SCHEME://$LAN_IP:$PORT"
 
 echo
 echo "My-Autowork LAN server"
@@ -91,4 +105,5 @@ fi
 exec "$VENV_PY" -m uvicorn reconcile_web_app:app \
     --host "$HOST" \
     --port "$PORT" \
-    --log-level info
+    --log-level info \
+    "${UVICORN_SSL_ARGS[@]}"
