@@ -19,7 +19,6 @@ fitz = lazy_module("fitz")
 Image = lazy_module("PIL.Image")
 ImageDraw = lazy_module("PIL.ImageDraw")
 ImageFont = lazy_module("PIL.ImageFont")
-ImageSequence = lazy_module("PIL.ImageSequence")
 
 
 SUPPORTED_DOCUMENT_SUFFIXES = {".pdf", ".tif", ".tiff"}
@@ -483,9 +482,23 @@ def load_pdf_pages(path: Path, dpi: int) -> list[Any]:
 
 def load_tiff_pages(path: Path) -> list[Any]:
     pages = []
+    skipped_frames: list[str] = []
     with Image.open(path) as image:
-        for frame in ImageSequence.Iterator(image):
-            pages.append(frame.convert("RGB"))
+        frame_count = int(getattr(image, "n_frames", 1) or 1)
+        for frame_index in range(frame_count):
+            try:
+                image.seek(frame_index)
+                pages.append(image.convert("RGB").copy())
+            except EOFError:
+                break
+            except (OSError, TypeError, ValueError) as exc:
+                skipped_frames.append(f"{frame_index + 1}: {exc}")
+                continue
+    if not pages:
+        detail = "; ".join(skipped_frames[-3:])
+        if detail:
+            raise ValueError(f"No readable pages found in TIFF {path.name}. Skipped frames: {detail}")
+        raise ValueError(f"No readable pages found in TIFF {path.name}.")
     return pages
 
 

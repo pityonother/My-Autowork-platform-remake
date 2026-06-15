@@ -88,3 +88,58 @@ def test_fit_font_size_keeps_calibrated_ufo_text_inside_cover_box() -> None:
 
     assert fit_font_size_to_box(text="UFO26061501", box=entry.box, anchor=entry.anchor, font_size=entry.font_size) >= 60
     assert fit_font_size_to_box(text="UFO26061501", box=barcode.box, anchor=barcode.anchor, font_size=barcode.font_size) >= 48
+
+
+def test_load_tiff_pages_skips_malformed_missing_dimension_frame(monkeypatch, tmp_path) -> None:
+    from app.modules.ufo_mail import cover_processor
+    from PIL import Image
+
+    class FakeTiff:
+        n_frames = 2
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def seek(self, frame_index: int) -> None:
+            if frame_index == 1:
+                raise TypeError("Missing dimensions")
+
+        def convert(self, mode: str):
+            assert mode == "RGB"
+            return Image.new("RGB", (20, 10), "white")
+
+    monkeypatch.setattr(cover_processor.Image, "open", lambda _path: FakeTiff())
+
+    pages = cover_processor.load_tiff_pages(tmp_path / "broken-extra-frame.tif")
+
+    assert len(pages) == 1
+    assert pages[0].size == (20, 10)
+
+
+def test_load_tiff_pages_reports_when_no_frames_are_readable(monkeypatch, tmp_path) -> None:
+    import pytest
+
+    from app.modules.ufo_mail import cover_processor
+
+    class BrokenTiff:
+        n_frames = 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def seek(self, _frame_index: int) -> None:
+            raise TypeError("Missing dimensions")
+
+        def convert(self, _mode: str):
+            raise AssertionError("convert should not be called for a broken frame")
+
+    monkeypatch.setattr(cover_processor.Image, "open", lambda _path: BrokenTiff())
+
+    with pytest.raises(ValueError, match="No readable pages found"):
+        cover_processor.load_tiff_pages(tmp_path / "fully-broken.tif")
