@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from uuid import uuid4
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
+from app.core.paths import OUTPUT_DIR, UPLOAD_DIR
 from app.modules.ufo_mail import repository
 from app.modules.ufo_mail.schemas import UfoIssueInput
 from app.modules.ufo_mail.service import (
@@ -132,6 +134,39 @@ async def import_ufo_mail_signature(
 async def toggle_ufo_mail_signature(enabled: bool = Form(default=False)) -> RedirectResponse:
     repository.set_ufo_signature_enabled(enabled)
     return RedirectResponse(url="/modules/ufo-mail#signature-settings", status_code=303)
+
+
+@router.get("/modules/ufo-mail/config/export")
+async def export_ufo_mail_config() -> FileResponse:
+    output_path = OUTPUT_DIR / f"ufo_mail_config_{uuid4().hex[:8]}.zip"
+    repository.export_ufo_config_package(output_path)
+    return FileResponse(output_path, media_type="application/zip", filename="ufo_mail_config.zip")
+
+
+@router.post("/modules/ufo-mail/config/import", response_class=HTMLResponse)
+async def import_ufo_mail_config(request: Request, config_file: UploadFile = File(...)) -> HTMLResponse:
+    if not config_file.filename:
+        raise HTTPException(status_code=400, detail="请上传 UFO 配置包 zip 文件。")
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    temp_path = UPLOAD_DIR / f"ufo_config_import_{uuid4().hex}.zip"
+    try:
+        temp_path.write_bytes(await config_file.read())
+        result = repository.import_ufo_config_package(temp_path)
+    except Exception as exc:  # noqa: BLE001
+        return templates.TemplateResponse(
+            request,
+            "ufo_mail.html",
+            build_ufo_context(error=f"UFO 配置包导入失败：{exc}"),
+            status_code=400,
+        )
+    finally:
+        temp_path.unlink(missing_ok=True)
+    summary = result.get("summary", {})
+    notice = (
+        f"UFO 配置包已导入：问题 {summary.get('issue_count', 0)} 项，"
+        f"签名图片 {summary.get('signature_asset_count', 0)} 张。"
+    )
+    return templates.TemplateResponse(request, "ufo_mail.html", build_ufo_context(notice=notice))
 
 
 @router.post("/modules/ufo-mail/generate", response_model=None)

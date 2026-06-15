@@ -218,6 +218,28 @@
             </div>
         </article>
 
+        <article class="panel ufo-config-card" id="config-sync">
+            <header class="ufo-section-head">
+                <div>
+                    <h2>配置同步</h2>
+                    <p class="hint">用于在 Windows 与 Mac 服务器之间同步常用收发件人、问题库和签名模板。</p>
+                </div>
+            </header>
+            <div class="ufo-actions">
+                <a class="secondary-btn" href="/modules/ufo-mail/config/export" download>导出 UFO 配置包</a>
+            </div>
+            <form action="/modules/ufo-mail/config/import" method="post" enctype="multipart/form-data" class="stack-form">
+                <label class="field">
+                    <span>导入 UFO 配置包</span>
+                    <input type="file" name="config_file" accept=".zip,application/zip" required>
+                </label>
+                <div class="dialog-actions">
+                    <button type="submit" class="secondary-btn">确认导入配置包</button>
+                </div>
+            </form>
+            <p class="hint">导入前会自动备份当前 Mac 端 UFO 数据；签名图片路径会重写为当前服务器的 runtime 目录。</p>
+        </article>
+
         <article class="panel ufo-tips">
             <header class="ufo-section-head">
                 <div>

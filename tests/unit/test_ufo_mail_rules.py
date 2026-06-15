@@ -319,3 +319,63 @@ def test_ufo_mail_settings_survive_db_initializer(monkeypatch, tmp_path) -> None
         "cc_email": "cc@example.com",
         "from_email": "from@example.com",
     }
+
+
+def test_ufo_config_package_roundtrips_settings_issues_and_signature_assets(monkeypatch, tmp_path) -> None:
+    import ufo_mail_store
+
+    source_dir = tmp_path / "source"
+    source_signature_dir = source_dir / "ufo_signature"
+    monkeypatch.setattr(ufo_mail_store, "DB_PATH", source_dir / "ufo_mail.db")
+    monkeypatch.setattr(ufo_mail_store, "SIGNATURE_DIR", source_signature_dir)
+
+    source_signature_dir.mkdir(parents=True)
+    logo_path = source_signature_dir / "logo.png"
+    logo_path.write_bytes(b"fake-png")
+    ufo_mail_store.save_ufo_mail_settings(
+        to_email="team@example.com",
+        cc_email="cc@example.com",
+        from_email="me@example.com",
+    )
+    ufo_mail_store.create_ufo_issue(
+        ufo_mail_store.UfoIssueInput(
+            short_cn="测试问题",
+            short_en="Test issue",
+            detail_en="Test issue detail.",
+        )
+    )
+    ufo_mail_store.save_ufo_signature_settings(
+        enabled=True,
+        signature_html='<img src="cid:logo">',
+        signature_plain="signature",
+        assets=[
+            {
+                "cid": "logo",
+                "path": str(logo_path),
+                "filename": "logo.png",
+                "content_type": "image/png",
+            }
+        ],
+        source_name="signature.eml",
+    )
+    package_path = tmp_path / "ufo_config.zip"
+
+    ufo_mail_store.export_ufo_config_package(package_path)
+
+    target_dir = tmp_path / "target"
+    target_signature_dir = target_dir / "ufo_signature"
+    monkeypatch.setattr(ufo_mail_store, "DB_PATH", target_dir / "ufo_mail.db")
+    monkeypatch.setattr(ufo_mail_store, "SIGNATURE_DIR", target_signature_dir)
+    result = ufo_mail_store.import_ufo_config_package(package_path)
+
+    assert result["summary"]["has_signature"] is True
+    assert ufo_mail_store.get_ufo_mail_settings() == {
+        "to_email": "team@example.com",
+        "cc_email": "cc@example.com",
+        "from_email": "me@example.com",
+    }
+    assert any(issue["short_en"] == "Test issue" for issue in ufo_mail_store.list_ufo_issues(include_inactive=True))
+    signature = ufo_mail_store.get_ufo_signature_settings()
+    imported_asset_path = Path(signature["assets"][0]["path"])
+    assert imported_asset_path == target_signature_dir / "logo.png"
+    assert imported_asset_path.read_bytes() == b"fake-png"

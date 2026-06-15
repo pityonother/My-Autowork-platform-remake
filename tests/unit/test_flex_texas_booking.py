@@ -339,6 +339,36 @@ def test_booking_xlsx_download_route_returns_attachment(monkeypatch, tmp_path: P
     assert response.content.startswith(b"PK")
 
 
+def test_sil_warehouse_mail_route_returns_eml_attachment(monkeypatch, tmp_path: Path) -> None:
+    client = TestClient(booking_app)
+    session_id = "sil-warehouse-mail-route"
+    output_path = tmp_path / "booking_warehouse_mail.eml"
+    output_path.write_bytes(b"Subject: test\r\n\r\nbody")
+    preview = BookingPreview(
+        session_id=session_id,
+        supplier="SIL-FUCA",
+        source_filename="customer.eml",
+        pack_filename="",
+        rows=[{"P/N": "TEST"}],
+        columns=["P/N"],
+    )
+    booking_routes.SESSION_STORE[session_id] = {
+        "booking_preview": preview,
+        "booking_customer_eml_path": str(tmp_path / "customer.eml"),
+    }
+    monkeypatch.setattr(booking_routes, "write_warehouse_mail", lambda **_kwargs: output_path)
+
+    response = client.post(
+        f"/modules/booking/warehouse-mail/{session_id}",
+        files={"warehouse_file": ("SIL26040490.pdf", b"%PDF-1.4\n", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("message/rfc822")
+    assert "attachment;" in response.headers["content-disposition"]
+    assert response.content.startswith(b"Subject: test")
+
+
 def test_export_flex_texas_pdf_tiff_ignores_system_export_pdf(tmp_path: Path) -> None:
     output_path = export_flex_texas_source_pdf_tiff(_sample_eml("4711941716"), tmp_path / "review.tif")
 
