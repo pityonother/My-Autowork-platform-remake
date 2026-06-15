@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 LABEL="com.local.my-autowork"
-RUNTIME_DIR="${MY_AUTOWORK_RUNTIME_DIR:-$ROOT_DIR/shared_data/runtime}"
+COMPANY_TOOLS_DATA_ROOT="${COMPANY_TOOLS_DATA_ROOT:-/Users/Shared/company_tools_data}"
+RUNTIME_DIR="${MY_AUTOWORK_RUNTIME_DIR:-$COMPANY_TOOLS_DATA_ROOT/my_autowork/runtime}"
 BACKUP_DIR="$ROOT_DIR/backups"
 VENV_DIR="${MY_AUTOWORK_VENV:-$ROOT_DIR/.venv_macos}"
 VENV_PY="$VENV_DIR/bin/python"
@@ -50,9 +51,8 @@ echo "Refreshing Python environment..."
 "$VENV_PY" -m pip install -r "$ROOT_DIR/requirements.txt"
 
 echo "Restarting service..."
-if [ -f "$HOME/Library/LaunchAgents/$LABEL.plist" ]; then
-    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$LABEL.plist"
-    launchctl kickstart -k "gui/$(id -u)/$LABEL"
+if [ -f "$ROOT_DIR/install_macos_service.sh" ]; then
+    "$ROOT_DIR/install_macos_service.sh"
 else
     nohup "$ROOT_DIR/run_mac_lan.sh" > "$ROOT_DIR/logs/my-autowork.out.log" 2> "$ROOT_DIR/logs/my-autowork.err.log" &
 fi

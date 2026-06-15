@@ -6,7 +6,8 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 LABEL="com.local.my-autowork"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_DIR="$ROOT_DIR/logs"
-RUNTIME_DIR="${MY_AUTOWORK_RUNTIME_DIR:-$ROOT_DIR/shared_data/runtime}"
+COMPANY_TOOLS_DATA_ROOT="${COMPANY_TOOLS_DATA_ROOT:-/Users/Shared/company_tools_data}"
+RUNTIME_DIR="${MY_AUTOWORK_RUNTIME_DIR:-$COMPANY_TOOLS_DATA_ROOT/my_autowork/runtime}"
 PORT="${MY_AUTOWORK_PORT:-8010}"
 
 "$PYTHON_BIN" - <<'PY'
