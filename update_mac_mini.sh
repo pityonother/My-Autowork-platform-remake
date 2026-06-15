@@ -49,6 +49,10 @@ git pull --ff-only
 echo "Refreshing Python environment..."
 "$PYTHON_BIN" -m venv "$VENV_DIR"
 "$VENV_PY" -m pip install -r "$ROOT_DIR/requirements.txt"
+if [ -f "$ROOT_DIR/requirements-yolo.txt" ]; then
+    "$VENV_PY" -m pip install torch torchvision
+    "$VENV_PY" -m pip install -r "$ROOT_DIR/requirements-yolo.txt"
+fi
 
 echo "Restarting service..."
 if [ -f "$ROOT_DIR/install_macos_service.sh" ]; then

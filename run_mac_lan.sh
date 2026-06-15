@@ -61,6 +61,10 @@ fi
 
 echo "Installing dependencies..."
 "$VENV_PY" -m pip install -r "$ROOT_DIR/requirements.txt"
+if [ -f "$ROOT_DIR/requirements-yolo.txt" ]; then
+    "$VENV_PY" -m pip install torch torchvision
+    "$VENV_PY" -m pip install -r "$ROOT_DIR/requirements-yolo.txt"
+fi
 
 mkdir -p "$RUNTIME_DIR" "$ROOT_DIR/logs"
 export BILL_TOOL_RUNTIME_DIR="$RUNTIME_DIR"

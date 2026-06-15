@@ -40,6 +40,8 @@ cat > "$PLIST" <<PLIST
     <string>$ROOT_DIR</string>
     <key>EnvironmentVariables</key>
     <dict>
+        <key>PYTHON_BIN</key>
+        <string>$PYTHON_BIN</string>
         <key>MY_AUTOWORK_OPEN_BROWSER</key>
         <string>0</string>
         <key>MY_AUTOWORK_HOST</key>
