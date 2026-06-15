@@ -95,7 +95,9 @@ def test_load_tiff_pages_skips_malformed_missing_dimension_frame(monkeypatch, tm
     from PIL import Image
 
     class FakeTiff:
-        n_frames = 2
+        @property
+        def n_frames(self) -> int:
+            raise TypeError("Missing dimensions")
 
         def __enter__(self):
             return self
@@ -125,7 +127,9 @@ def test_load_tiff_pages_reports_when_no_frames_are_readable(monkeypatch, tmp_pa
     from app.modules.ufo_mail import cover_processor
 
     class BrokenTiff:
-        n_frames = 1
+        @property
+        def n_frames(self) -> int:
+            raise TypeError("Missing dimensions")
 
         def __enter__(self):
             return self

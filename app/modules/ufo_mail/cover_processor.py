@@ -484,8 +484,8 @@ def load_tiff_pages(path: Path) -> list[Any]:
     pages = []
     skipped_frames: list[str] = []
     with Image.open(path) as image:
-        frame_count = int(getattr(image, "n_frames", 1) or 1)
-        for frame_index in range(frame_count):
+        frame_index = 0
+        while True:
             try:
                 image.seek(frame_index)
                 pages.append(image.convert("RGB").copy())
@@ -493,7 +493,8 @@ def load_tiff_pages(path: Path) -> list[Any]:
                 break
             except (OSError, TypeError, ValueError) as exc:
                 skipped_frames.append(f"{frame_index + 1}: {exc}")
-                continue
+                break
+            frame_index += 1
     if not pages:
         detail = "; ".join(skipped_frames[-3:])
         if detail:
