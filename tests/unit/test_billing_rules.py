@@ -19,6 +19,14 @@ def test_split_loading_supports_mixed_pallet_and_carton_amount() -> None:
     assert result.remark == "2板1箱"
 
 
+def test_split_loading_searches_less_greedy_pallet_combination() -> None:
+    result = split_loading(Decimal("865.36"))
+
+    assert result.pallet_count == 12
+    assert result.carton_count == 10
+    assert result.remark == "12板10箱"
+
+
 def test_split_loading_rejects_unmatched_amount() -> None:
     with pytest.raises(ValueError):
         split_loading(Decimal("11.00"))

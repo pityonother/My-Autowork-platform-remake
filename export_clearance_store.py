@@ -119,8 +119,7 @@ def clean_text(value: object) -> str:
 
 
 def is_tan_note_row(first_cell: object) -> bool:
-    text = str(first_cell or "").strip()
-    return text.upper().startswith("TAN#")
+    return is_tan_number(first_cell)
 
 
 def parse_export_clearance_file(path: Path) -> list[dict[str, Any]]:
@@ -176,6 +175,8 @@ def _parse_export_clearance_file_uncached(path: Path) -> list[dict[str, Any]]:
                 return idx
         return None
 
+    item_col = col("Item")
+    marker_col = item_col if item_col is not None else 0
     sn_col = col("SN NO.")
     ship_mode_col = col("ship mode")
     destination_col = col("目的国")
@@ -187,18 +188,30 @@ def _parse_export_clearance_file_uncached(path: Path) -> list[dict[str, Any]]:
 
     current_group_rows: list[pd.Series] = []
     parsed_records: list[dict[str, Any]] = []
+    tan_note_cols = [marker_col]
+    if sn_col is not None and sn_col not in tan_note_cols:
+        tan_note_cols.append(sn_col)
+
+    def find_tan_note_cell(row: pd.Series) -> tuple[int, Any] | None:
+        for column_index in tan_note_cols:
+            if column_index < len(row) and is_tan_note_row(row.iloc[column_index]):
+                return column_index, row.iloc[column_index]
+        return None
 
     for idx in range(header_row_idx + 1, len(sheet)):
         row = sheet.iloc[idx]
-        first_value = row.iloc[0] if len(row) > 0 else ""
-        first_text = str(first_value or "").strip()
+        marker_value = row.iloc[marker_col] if marker_col < len(row) else ""
+        marker_text = str(marker_value or "").strip()
 
-        if not first_text and row.isna().all():
+        if not marker_text and row.isna().all():
             continue
 
-        if is_tan_note_row(first_value):
-            tan_number = normalize_tan_number(first_value)
-            tan_description = str(row.iloc[1] or "").strip() if len(row) > 1 else ""
+        tan_note_cell = find_tan_note_cell(row)
+        if tan_note_cell is not None:
+            tan_col, tan_value = tan_note_cell
+            tan_number = normalize_tan_number(tan_value)
+            description_col = tan_col + 1
+            tan_description = clean_text(row.iloc[description_col]) if description_col < len(row) else ""
             if current_group_rows:
                 parsed_records.append(
                     {
@@ -222,7 +235,7 @@ def _parse_export_clearance_file_uncached(path: Path) -> list[dict[str, Any]]:
             current_group_rows = []
             continue
 
-        if isinstance(first_value, (int, float)) or first_text.isdigit():
+        if isinstance(marker_value, (int, float)) or marker_text.isdigit():
             current_group_rows.append(row)
 
     return parsed_records
@@ -634,6 +647,7 @@ def export_cleared_workbook(clear_date: date | None = None) -> BytesIO:
 from app.modules.export_clearance.rules import (
     export_record_business_key,
     format_pallet_carton_text,
+    is_tan_number,
     normalize_tan_number,
     urgency_sort_key,
 )

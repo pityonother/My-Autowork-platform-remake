@@ -542,13 +542,18 @@ def split_loading(total_amount: Decimal) -> LoadingBreakdown:
             exact_split=True,
         )
 
-    pallet_count = total_cents // pallet_cents
-    remainder = total_cents - pallet_count * pallet_cents
-    if remainder < 0 or remainder % carton_cents != 0:
+    pallet_count = None
+    carton_count = None
+    for candidate_pallets in range(total_cents // pallet_cents, -1, -1):
+        remainder = total_cents - candidate_pallets * pallet_cents
+        if remainder >= 0 and remainder % carton_cents == 0:
+            pallet_count = candidate_pallets
+            carton_count = remainder // carton_cents
+            break
+    if pallet_count is None or carton_count is None:
         raise ValueError(
             f"装卸费 {total_amount} 无法按 63.78/板 和 10/箱 拆分，请检查单页账单。"
         )
-    carton_count = remainder // carton_cents
     return LoadingBreakdown(
         total_amount=quantized(total_amount),
         pallet_count=pallet_count,

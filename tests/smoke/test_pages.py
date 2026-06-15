@@ -70,6 +70,15 @@ def test_booking_standalone_entry_opens() -> None:
     assert page_response.status_code == 200
 
 
+def test_home_page_has_flex_texas_booking_shortcut() -> None:
+    client = TestClient(main_app)
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Flex-Texas Booking" in response.text
+    assert 'href="/modules/booking?supplier=FLEX-TEXAS"' in response.text
+
+
 def test_finance_records_rejects_invalid_batch_id() -> None:
     client = TestClient(main_app, raise_server_exceptions=False)
     response = client.get("/modules/finance-records?batch_id=abc")

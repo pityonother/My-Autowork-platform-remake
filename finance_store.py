@@ -1079,8 +1079,26 @@ if ($totalFormulaStartRow -le 0) {{
 }}
 
 $lastDataRow = $startRow - 1
+$firstWritableRow = 0
 $blankRows = New-Object System.Collections.Queue
 for ($rowIndex = $startRow; $rowIndex -lt $insertBeforeRow; $rowIndex++) {{
+    $rowIsMergedHeader = $false
+    for ($colIndex = 1; $colIndex -le 10; $colIndex++) {{
+        $cell = $ws.Cells.Item($rowIndex, $colIndex)
+        if ($cell.MergeCells) {{
+            $mergeArea = $cell.MergeArea
+            if ($mergeArea.Rows.Count -gt 1 -or $mergeArea.Row -lt $rowIndex) {{
+                $rowIsMergedHeader = $true
+                break
+            }}
+        }}
+    }}
+    if ($rowIsMergedHeader) {{
+        continue
+    }}
+    if ($firstWritableRow -eq 0) {{
+        $firstWritableRow = $rowIndex
+    }}
     $rowHasAnyValue = $false
     for ($colIndex = 1; $colIndex -le 10; $colIndex++) {{
         if ([string]$ws.Cells.Item($rowIndex, $colIndex).Text) {{
@@ -1101,7 +1119,7 @@ for ($rowIndex = $startRow; $rowIndex -lt $insertBeforeRow; $rowIndex++) {{
         $lastDataRow = $rowIndex
     }}
 }}
-$sampleRow = if ($lastDataRow -ge $startRow) {{ $lastDataRow }} else {{ $startRow }}
+$sampleRow = if ($lastDataRow -ge $startRow) {{ $lastDataRow }} elseif ($firstWritableRow -gt 0) {{ $firstWritableRow }} else {{ $startRow }}
 
 foreach ($row in @($rows)) {{
     if ($blankRows.Count -gt 0) {{

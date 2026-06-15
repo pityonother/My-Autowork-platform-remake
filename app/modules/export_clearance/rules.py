@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 from typing import Any
+
+TAN_NUMBER_RE = re.compile(r"^\s*T\s*A\s*N\s*[#＃]?\s*([A-Za-z0-9-]+)\s*$", re.IGNORECASE)
 
 
 def clean_text(value: object) -> str:
@@ -14,7 +17,15 @@ def normalize_tan_number(value: object) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
+    match = TAN_NUMBER_RE.match(text)
+    if match:
+        return f"TAN#{match.group(1).upper()}"
     return text.replace("Tan#", "TAN#").replace("tan#", "TAN#")
+
+
+def is_tan_number(value: object) -> bool:
+    text = str(value or "").strip()
+    return bool(TAN_NUMBER_RE.match(text))
 
 
 def export_record_business_key(
@@ -47,4 +58,10 @@ def format_pallet_carton_text(pallet_count: Any, carton_count: Any) -> str:
     return f"{int(float(pallet_count or 0))}板/{int(float(carton_count or 0))}箱"
 
 
-__all__ = ["export_record_business_key", "format_pallet_carton_text", "normalize_tan_number", "urgency_sort_key"]
+__all__ = [
+    "export_record_business_key",
+    "format_pallet_carton_text",
+    "is_tan_number",
+    "normalize_tan_number",
+    "urgency_sort_key",
+]

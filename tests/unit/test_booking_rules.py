@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 from openpyxl import Workbook, load_workbook
 
+import booking_store
 from app.modules.booking.legacy_adapter import BookingPreview, build_booking_preview, write_booking_workbook
 from app.modules.booking import mail_builder
 from app.modules.booking.mail_builder import extract_sil_warehouse_no, replace_mail_template_values
@@ -150,6 +151,41 @@ def test_vc_dzyq_rule_maps_desktop_document_requirements(monkeypatch, tmp_path) 
     assert row["每箱标准数"] == 2000
 
 
+def test_booking_preview_maps_origin_to_country_abbreviation(monkeypatch, tmp_path) -> None:
+    source_path = tmp_path / "VC_DZYQ_origin.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "清单 "
+    ws.append(
+        [
+            "厂商编号",
+            "厂商",
+            "Customer_PO",
+            "",
+            "PO Item",
+            "CustPartNumber",
+            "CPNRev",
+            "TI_MATERIAL",
+            "BoxQty",
+            "Net",
+            "Net Wght Unit",
+            "Total Wght",
+            "Total Wght Unit",
+            "PLS",
+        ]
+    )
+    ws.append(["VC_DZYQ", "TI原厂", "C33C-26010025", "0001", "1010170933002T", "", "TLV70933PKR", 2000, 98, "G", 0.79, "KG", 2, "PHILIPPINES"])
+    wb.save(source_path)
+
+    monkeypatch.setattr(vc_dzyq, "load_min_pack_lookup", lambda: ({"1010170933002T": 1000}, ""))
+    monkeypatch.setattr(booking_store, "load_country_abbr_lookup", lambda: ({"PHILIPPINES": "PH"}, ""))
+
+    preview = build_booking_preview(session_id="origin-test", supplier="VC_DZYQ", source_path=source_path)
+
+    assert preview.can_generate
+    assert preview.rows[0]["产地 (made in)"] == "PH"
+
+
 def test_write_booking_workbook_unmerges_template_rows_for_all_suppliers(tmp_path) -> None:
     columns = [
         "订单号",
@@ -213,3 +249,7 @@ def test_write_booking_workbook_unmerges_template_rows_for_all_suppliers(tmp_pat
     assert output_ws["B21"].style_id == output_ws["B19"].style_id
     assert output_ws["C21"].style_id == output_ws["C19"].style_id
     assert output_ws["E24"].style_id == output_ws["E19"].style_id
+    assert output_ws["A25"].value == "Total"
+    assert output_ws["A26"].value == "* required field"
+    assert "A25:E25" in {str(item) for item in output_ws.merged_cells.ranges}
+    assert "A26:C26" in {str(item) for item in output_ws.merged_cells.ranges}

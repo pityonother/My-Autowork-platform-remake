@@ -7,6 +7,7 @@ import uuid
 from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
+from email.utils import make_msgid
 from pathlib import Path
 from typing import Any
 
@@ -186,6 +187,83 @@ def build_sil_fuca_warehouse_mail_body(mawb_no: str, warehouse_no: str) -> str:
     )
 
 
+def build_reply_subject(original_subject: str, fallback: str = "Flex-Texas booking") -> str:
+    subject = str(original_subject or "").strip() or fallback
+    if re.match(r"(?i)^\s*(re|答复|回复)\s*:", subject):
+        return subject
+    return f"Re: {subject}"
+
+
+def build_flex_texas_booking_reply_body(preview: Any) -> str:
+    lines = [
+        "Hi,",
+        "",
+        "Please find attached the completed TMS warehouse-entry PDF.",
+    ]
+    if getattr(preview, "mawb_no", ""):
+        lines.append(f"MAWB: {preview.mawb_no}")
+    if getattr(preview, "hbl_no", ""):
+        lines.append(f"HAWB: {preview.hbl_no}")
+    lines.extend(["", "Thanks & Best regards"])
+    return "\r\n".join(lines)
+
+
+def _references_header(original_message_id: str, original_references: str) -> str:
+    message_id = original_message_id.strip()
+    references = original_references.strip()
+    if not message_id:
+        return references
+    if message_id in references:
+        return references
+    return " ".join(item for item in (references, message_id) if item)
+
+
+def generate_flex_texas_booking_reply_eml(
+    *,
+    preview: Any,
+    customer_eml_path: Path,
+    tms_pdf_path: Path,
+    output_path: Path,
+    body_text: str = "",
+    from_email: str = '"op19@hkctwl.net" <op19@hkctwl.net>',
+) -> str:
+    if getattr(preview, "supplier", "") != "FLEX-TEXAS":
+        raise ValueError("当前只支持 FLEX-TEXAS 生成原邮件回复 eml。")
+    if not customer_eml_path.exists():
+        raise FileNotFoundError("未找到客户原始 eml，无法生成原邮件回复。")
+    if not tms_pdf_path.exists():
+        raise FileNotFoundError("未找到 TMS 导出的 PDF 文件。")
+
+    original = BytesParser(policy=policy.default).parsebytes(customer_eml_path.read_bytes())
+    original_subject = str(original.get("subject") or "")
+    reply_to = str(original.get("reply-to") or original.get("from") or "").strip()
+    if not reply_to:
+        raise ValueError("客户原始 eml 缺少 From / Reply-To，无法确定回复收件人。")
+
+    original_message_id = str(original.get("message-id") or "").strip()
+    original_references = str(original.get("references") or "").strip()
+    subject = build_reply_subject(original_subject)
+
+    message = EmailMessage(policy=policy.SMTP)
+    message["X-Unsent"] = "1"
+    message["Subject"] = subject
+    message["Message-ID"] = make_msgid(domain="booking.local")
+    if from_email.strip():
+        message["From"] = from_email.strip()
+    message["To"] = reply_to
+    if original_message_id:
+        message["In-Reply-To"] = original_message_id
+    references = _references_header(original_message_id, original_references)
+    if references:
+        message["References"] = references
+    message.set_content(body_text.strip() or build_flex_texas_booking_reply_body(preview))
+    add_booking_attachment(message, tms_pdf_path, tms_pdf_path.name)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(message.as_bytes())
+    return subject
+
+
 def generate_sil_fuca_warehouse_eml(
     *,
     preview: Any,
@@ -253,7 +331,10 @@ def generate_sil_fuca_warehouse_eml(
 __all__ = [
     "build_sil_fuca_warehouse_mail_body",
     "build_sil_fuca_warehouse_mail_subject",
+    "build_flex_texas_booking_reply_body",
+    "build_reply_subject",
     "extract_sil_warehouse_no",
+    "generate_flex_texas_booking_reply_eml",
     "generate_sil_fuca_warehouse_eml",
     "load_sil_fuca_warehouse_template",
     "replace_mail_template_values",

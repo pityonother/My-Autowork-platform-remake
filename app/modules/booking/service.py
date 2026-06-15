@@ -7,9 +7,10 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from app.core.paths import OUTPUT_DIR, UPLOAD_DIR
-from app.modules.booking.mail_builder import generate_sil_fuca_warehouse_eml
+from app.modules.booking.mail_builder import generate_flex_texas_booking_reply_eml, generate_sil_fuca_warehouse_eml
 from app.shared.performance import timed_step
 from app.shared.uploads import save_upload
+from app.modules.booking.rules.registry import SUPPLIER_RULES
 from app.modules.booking.legacy_adapter import (
     BookingPreview,
     available_suppliers,
@@ -31,6 +32,19 @@ class BookingPreviewSession:
     warehouse_mail_ready: bool
 
 
+def _supplier_uses_eml_pdf_source(supplier: str) -> bool:
+    rule = SUPPLIER_RULES.get(supplier)
+    return bool(rule and getattr(rule, "SOURCE_KIND", "") == "eml_pdf")
+
+
+def eml_pdf_suppliers() -> set[str]:
+    return {
+        supplier
+        for supplier, rule in SUPPLIER_RULES.items()
+        if getattr(rule, "SOURCE_KIND", "") == "eml_pdf"
+    }
+
+
 def build_preview_session(
     *,
     supplier: str,
@@ -47,10 +61,13 @@ def build_preview_session(
 
     if customer_eml and customer_eml.filename:
         eml_path = save_upload(session_id, customer_eml, "booking_customer")
-        source_path, packadc_path, warnings, email_subject = extract_booking_attachments_from_eml(
-            eml_path,
-            UPLOAD_DIR / session_id / "booking_attachments",
-        )
+        if _supplier_uses_eml_pdf_source(supplier):
+            source_path = eml_path
+        else:
+            source_path, packadc_path, warnings, email_subject = extract_booking_attachments_from_eml(
+                eml_path,
+                UPLOAD_DIR / session_id / "booking_attachments",
+            )
     if source_path is None and source_file and source_file.filename:
         source_path = save_upload(session_id, source_file, "booking_source")
     if packadc_path is None and packadc_file and packadc_file.filename:
@@ -95,5 +112,26 @@ def write_warehouse_mail(
             customer_eml_path=customer_eml_path,
             warehouse_file_path=warehouse_path,
             output_path=output_path,
+        )
+    return output_path
+
+
+def write_flex_texas_reply_mail(
+    *,
+    session_id: str,
+    preview: BookingPreview,
+    customer_eml_path: Path,
+    tms_pdf_file: UploadFile,
+    body_text: str = "",
+) -> Path:
+    tms_pdf_path = save_upload(session_id, tms_pdf_file, "booking_flex_texas_tms_pdf")
+    output_path = OUTPUT_DIR / f"flex_texas_booking_reply_{session_id}.eml"
+    with timed_step("booking.write_flex_texas_reply_mail"):
+        generate_flex_texas_booking_reply_eml(
+            preview=preview,
+            customer_eml_path=customer_eml_path,
+            tms_pdf_path=tms_pdf_path,
+            output_path=output_path,
+            body_text=body_text,
         )
     return output_path

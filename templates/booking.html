@@ -13,7 +13,7 @@
         <div>
             <p class="eyebrow">Booking Form · 自动填表</p>
             <h1>Booking 生成器</h1>
-            <p class="lead">上传客户 CCIXLS，按供应商规则清洗字段、匹配 PACKADCXLS 发票号，输出填好的 booking_template_zh。</p>
+            <p class="lead">按供应商规则读取客户邮件或源表，输出填好的 booking form。</p>
         </div>
         <div class="actions">
             <a class="secondary-btn" href="/">返回首页</a>
@@ -31,18 +31,25 @@
         <header class="booking-section-head">
             <div>
                 <h2>① 上传与预览</h2>
-                <p class="hint">优先上传客户原始 <code>.eml</code>，系统会自动提取附件中的 CCIXLS 和 PACKADCXLS。下方两个 <code>.xls</code> 仅作为兜底，当客户邮件不完整或格式特殊时使用。</p>
+                <p class="hint" data-mode-copy data-default-copy="优先上传客户原始 .eml，系统会自动提取附件中的 CCIXLS 和 PACKADCXLS。下方两个 Excel 仅作为兜底。" data-eml-pdf-copy="选择 FLEX-TEXAS 后上传客户原始 .eml，系统会读取邮件正文和 Texas/Expeditors PDF 附件，展示待填表格，并自动打开 PDF 转出的 TIF。">
+                    {% if selected_supplier in eml_pdf_suppliers %}
+                    选择 FLEX-TEXAS 后上传客户原始 <code>.eml</code>，系统会读取邮件正文和 Texas/Expeditors PDF 附件，展示待填表格，并自动打开 PDF 转出的 TIF。
+                    {% else %}
+                    优先上传客户原始 <code>.eml</code>，系统会自动提取附件中的 CCIXLS 和 PACKADCXLS。下方两个 Excel 仅作为兜底。
+                    {% endif %}
+                </p>
             </div>
             <span class="status-chip info">配置驱动</span>
         </header>
 
-        <form class="booking-form" id="booking-form" method="post" action="/modules/booking/preview" enctype="multipart/form-data">
+        <form class="booking-form {% if selected_supplier in eml_pdf_suppliers %}is-eml-pdf-supplier{% endif %}" id="booking-form" method="post" action="/modules/booking/preview" enctype="multipart/form-data">
+            <input type="hidden" name="auto_generate" value="0" data-auto-generate>
             <div class="booking-form-row booking-form-row-single">
                 <label class="field booking-field-supplier">
                     <span>供应商</span>
-                    <select name="supplier" required>
+                    <select name="supplier" required data-supplier-select>
                         {% for supplier in suppliers %}
-                        <option value="{{ supplier }}" {% if supplier == selected_supplier %}selected{% endif %}>{{ supplier }}</option>
+                        <option value="{{ supplier }}" {% if supplier in eml_pdf_suppliers %}data-eml-pdf="true"{% endif %} {% if supplier == selected_supplier %}selected{% endif %}>{{ supplier }}</option>
                         {% endfor %}
                     </select>
                 </label>
@@ -52,14 +59,20 @@
                 <input type="file" name="customer_eml" accept=".eml,message/rfc822" data-auto-preview>
                 <span class="booking-upload-icon" aria-hidden="true">✉</span>
                 <span class="booking-upload-body">
-                    <span class="booking-upload-title">选择客户原始邮件 .eml</span>
-                    <span class="booking-upload-sub">自动提取附件中的 CCIXLS / PACKADCXLS，选好后会立即提交预览</span>
+                    <span class="booking-upload-title" data-upload-title data-default-title="选择客户原始邮件 .eml" data-eml-pdf-title="选择 Flex-Texas 原始邮件 .eml">
+                        {% if selected_supplier in eml_pdf_suppliers %}选择 Flex-Texas 原始邮件 .eml{% else %}选择客户原始邮件 .eml{% endif %}
+                    </span>
+                    <span class="booking-upload-sub" data-upload-sub data-default-sub="自动提取附件中的 CCIXLS / PACKADCXLS，选好后会立即提交预览" data-eml-pdf-sub="自动读取邮件正文和 PDF 附件，选好后会立即提交预览">
+                        {% if selected_supplier in eml_pdf_suppliers %}自动读取邮件正文和 PDF 附件，选好后会立即提交预览{% else %}自动提取附件中的 CCIXLS / PACKADCXLS，选好后会立即提交预览{% endif %}
+                    </span>
                     <span class="booking-upload-file" data-upload-file></span>
                 </span>
-                <span class="booking-upload-chip">主流程</span>
+                <span class="booking-upload-chip" data-upload-chip data-default-chip="主流程" data-eml-pdf-chip="TIF 核对">
+                    {% if selected_supplier in eml_pdf_suppliers %}TIF 核对{% else %}主流程{% endif %}
+                </span>
             </label>
 
-            <div class="booking-form-row booking-form-row-fallback">
+            <div class="booking-form-row booking-form-row-fallback" data-fallback-row>
                 <label class="booking-upload is-fallback">
                     <input type="file" name="source_file" accept=".xls,.xlsx">
                     <span class="booking-upload-body">
@@ -80,8 +93,10 @@
             </div>
 
             <div class="booking-form-footer">
-                <span class="hint">选好客户 eml 会自动提交；其他场景请手动点击「预览」。</span>
-                <button class="primary-btn" type="submit">预览</button>
+                <span class="hint" data-footer-hint data-default-hint="选好客户 eml 会自动提交；其他场景请手动点击「预览」。" data-eml-pdf-hint="FLEX-TEXAS 选好 eml 后会显示待填数据，并用 Windows 照片查看器打开 PDF 转出的 TIF。">
+                    {% if selected_supplier in eml_pdf_suppliers %}FLEX-TEXAS 选好 eml 后会显示待填数据，并用 Windows 照片查看器打开 PDF 转出的 TIF。{% else %}选好客户 eml 会自动提交；其他场景请手动点击「预览」。{% endif %}
+                </span>
+                <button class="primary-btn" type="submit" data-preview-button>预览</button>
             </div>
         </form>
     </section>
@@ -92,15 +107,20 @@
             <div>
                 <h2>② 预览结果</h2>
                 <p class="hint">
+                    {% if preview.supplier in eml_pdf_suppliers %}
+                    PDF 附件 <strong>{{ preview.pdf_page_count }}</strong> 页，
+                    识别明细 <strong>{{ preview.detail_count }}</strong> 条，
+                    {% else %}
                     detail <strong>{{ preview.detail_count }}</strong> 条，
                     PACKADCXLS 原始 <strong>{{ preview.packadc_count }}</strong> 条，
+                    {% endif %}
                     即将写入 <strong>{{ preview.rows|length }}</strong> 条。
                 </p>
             </div>
             {% if preview.can_generate %}
-            <form method="post" action="/modules/booking/generate/{{ preview.session_id }}" class="booking-generate-form">
-                <button class="primary-btn" type="submit">生成并下载 .xlsx</button>
-            </form>
+            <a class="primary-btn booking-generate-link" href="/modules/booking/generate/{{ preview.session_id }}" download>生成并下载 .xlsx</a>
+            {% elif preview.validation_error_count %}
+            <span class="booking-generate-blocked">存在错误级校验，先核对后再生成</span>
             {% endif %}
         </header>
 
@@ -128,11 +148,120 @@
 
         <div class="booking-meta-grid">
             <div class="booking-meta-cell"><span>源文件</span><strong>{{ preview.source_filename }}</strong></div>
-            <div class="booking-meta-cell"><span>PACK 文件</span><strong>{{ preview.pack_filename or '未上传 / 未识别' }}</strong></div>
+            <div class="booking-meta-cell"><span>{% if preview.supplier in eml_pdf_suppliers %}PDF 附件{% else %}PACK 文件{% endif %}</span><strong>{{ preview.pack_filename or '未上传 / 未识别' }}</strong></div>
             <div class="booking-meta-cell"><span>供应商</span><strong>{{ preview.supplier }}</strong></div>
             <div class="booking-meta-cell"><span>MBLNO</span><strong>{{ preview.mawb_no or '未识别' }}</strong></div>
+            {% if preview.supplier in eml_pdf_suppliers %}
+            <div class="booking-meta-cell"><span>H.B/LNO</span><strong>{{ preview.hbl_no or '未识别' }}</strong></div>
+            <div class="booking-meta-cell"><span>Delivery to Hub</span><strong>{{ preview.delivery_to_hub_date or '未识别' }}</strong></div>
+            {% else %}
             <div class="booking-meta-cell"><span>采购方</span><strong>{{ preview.purchaser or '未匹配' }}</strong></div>
+            {% endif %}
         </div>
+
+        {% if preview.validation_sections %}
+        <section class="booking-validation-panel">
+            <div class="booking-panel-subhead">
+                <div>
+                    <h3>字段校验汇总</h3>
+                    <p class="hint">按空运主分单和明细规则核对，警示项不拦截生成，错误项会暂停生成。</p>
+                </div>
+                <div class="booking-validation-summary">
+                    <span class="booking-validation-badge is-ok">通过</span>
+                    {% if preview.validation_warning_count %}
+                    <span class="booking-validation-badge is-warning">警示 {{ preview.validation_warning_count }}</span>
+                    {% endif %}
+                    {% if preview.validation_error_count %}
+                    <span class="booking-validation-badge is-error">错误 {{ preview.validation_error_count }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% for section in preview.validation_sections %}
+            <details class="booking-validation-section is-{{ section.status }}">
+                <summary class="booking-validation-section-summary">
+                    <span class="booking-validation-section-title">
+                        <strong>{{ section.title }}</strong>
+                        <span>共 {{ section.items|length }} 项</span>
+                    </span>
+                    <span class="booking-validation-section-badges">
+                        <span class="booking-validation-badge is-ok">通过 {{ section.ok_count }}</span>
+                        {% if section.warning_count %}
+                        <span class="booking-validation-badge is-warning">警示 {{ section.warning_count }}</span>
+                        {% endif %}
+                        {% if section.error_count %}
+                        <span class="booking-validation-badge is-error">错误 {{ section.error_count }}</span>
+                        {% endif %}
+                    </span>
+                </summary>
+                <div class="booking-validation-list">
+                    {% for item in section.items %}
+                    <details class="booking-validation-item is-{{ item.status }}">
+                        <summary class="booking-validation-item-head">
+                            <span class="booking-validation-item-title">
+                                {% if item.row_no %}
+                                <span class="booking-validation-row">第 {{ item.row_no }} 行</span>
+                                {% endif %}
+                                <strong>{{ item.field }}</strong>
+                            </span>
+                            <span class="booking-validation-final-inline">
+                                <span>最终填入</span>
+                                <strong>{{ item.final_value or '-' }}</strong>
+                            </span>
+                            <span class="booking-validation-status">{{ item.status_label }}</span>
+                        </summary>
+                        <div class="booking-validation-item-body">
+                            <p>{{ item.message }}</p>
+                            <dl class="booking-validation-sources">
+                                {% for source in item.sources %}
+                                <div>
+                                    <dt>{{ source.label }}</dt>
+                                    <dd>{{ source.value or '-' }}</dd>
+                                </div>
+                                {% endfor %}
+                            </dl>
+                        </div>
+                    </details>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        {% if preview.supplier in eml_pdf_suppliers %}
+        <section class="booking-subpanel">
+            <div class="booking-section-head">
+                <div>
+                    <h3>③ 回复客户邮件</h3>
+                    <p class="hint">上传 TMS 最终导出的 PDF 文件后，系统会生成一封回复原邮件的 <code>.eml</code> 草稿，自动附上该 PDF，并写入邮件线程头。</p>
+                </div>
+            </div>
+            <form method="post" action="/modules/booking/flex-texas-reply-mail/{{ preview.session_id }}" enctype="multipart/form-data" class="booking-form">
+                <label class="booking-upload is-fallback">
+                    <input type="file" name="tms_pdf_file" accept=".pdf,application/pdf" required>
+                    <span class="booking-upload-body">
+                        <span class="booking-upload-title">上传 TMS 导出的 PDF</span>
+                        <span class="booking-upload-sub">这份文件会作为回复客户邮件的附件。</span>
+                        <span class="booking-upload-file" data-upload-file></span>
+                    </span>
+                </label>
+                <label class="field booking-reply-body-field">
+                    <span>回复正文</span>
+                    <textarea name="body_text" rows="7">Hi,
+
+Please find attached the completed TMS warehouse-entry PDF.
+{% if preview.mawb_no %}MAWB: {{ preview.mawb_no }}
+{% endif %}{% if preview.hbl_no %}HAWB: {{ preview.hbl_no }}
+{% endif %}
+Thanks & Best regards</textarea>
+                </label>
+                <div class="booking-form-footer">
+                    <span class="hint">生成的草稿会使用 <code>Re:</code>、<code>In-Reply-To</code> 和 <code>References</code> 来尽量保留原邮件会话。</span>
+                    <button class="primary-btn" type="submit">生成回复 .eml</button>
+                </div>
+            </form>
+        </section>
+        {% endif %}
 
         {% if warehouse_mail_ready %}
         <section class="booking-subpanel">
@@ -159,29 +288,62 @@
         </section>
         {% endif %}
 
-        <div class="booking-table-wrap">
-            <table class="booking-table">
-                <thead>
-                <tr>
-                    <th>#</th>
-                    {% for column in preview.columns %}
-                    <th>{{ column }}</th>
+        <div class="booking-review-layout">
+            <section class="booking-data-panel">
+                <div class="booking-panel-subhead">
+                    <div>
+                        <h3>即将填入 booking form 的数值</h3>
+                        <p class="hint">所有字段会在页面里展开显示；PDF 附件已转成 TIF，并交给 Windows 照片查看器核对。</p>
+                    </div>
+                </div>
+                {% if preview.supplier in eml_pdf_suppliers %}
+                <div class="booking-field-records">
+                    {% for row in preview.rows %}
+                    <article class="booking-field-record">
+                        <header class="booking-field-record-head">
+                            <span class="booking-row-index">第 {{ loop.index }} 行</span>
+                            <strong>{{ row.get('PO No. *', '') or '未识别 PO' }}</strong>
+                            <span>{{ row.get('Invoice No.*', '') or '未识别 Invoice' }}</span>
+                        </header>
+                        <dl class="booking-field-grid">
+                            {% for column in preview.columns %}
+                            <div class="booking-field-item">
+                                <dt>{{ column }}</dt>
+                                <dd>{{ row.get(column, '') }}</dd>
+                            </div>
+                            {% endfor %}
+                        </dl>
+                    </article>
                     {% endfor %}
-                </tr>
-                </thead>
-                <tbody>
-                {% for row in preview.rows %}
-                <tr>
-                    <td>{{ loop.index }}</td>
-                    {% for column in preview.columns %}
-                    <td>{{ row.get(column, '') }}</td>
-                    {% endfor %}
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
+                </div>
+                {% else %}
+                <div class="booking-table-wrap">
+                    <table class="booking-table">
+                        <thead>
+                        <tr>
+                            <th>#</th>
+                            {% for column in preview.columns %}
+                            <th>{{ column }}</th>
+                            {% endfor %}
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% for row in preview.rows %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            {% for column in preview.columns %}
+                            <td>{{ row.get(column, '') }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+            </section>
         </div>
     </section>
+
     {% endif %}
 </main>
 
@@ -190,10 +352,51 @@
     var form = document.getElementById('booking-form');
     if (!form) return;
 
+    var supplierSelect = form.querySelector('[data-supplier-select]');
+    var autoGenerateInput = form.querySelector('[data-auto-generate]');
+    var fallbackRow = form.querySelector('[data-fallback-row]');
+    var fallbackInputs = fallbackRow ? fallbackRow.querySelectorAll('input[type="file"]') : [];
+    var modeCopy = document.querySelector('[data-mode-copy]');
+    var uploadTitle = form.querySelector('[data-upload-title]');
+    var uploadSub = form.querySelector('[data-upload-sub]');
+    var uploadChip = form.querySelector('[data-upload-chip]');
+    var footerHint = form.querySelector('[data-footer-hint]');
+
+    function selectedIsEmlPdf() {
+        if (!supplierSelect || !supplierSelect.selectedOptions.length) return false;
+        return supplierSelect.selectedOptions[0].dataset.emlPdf === 'true';
+    }
+
+    function setText(target, value) {
+        if (target && value) target.textContent = value;
+    }
+
+    function syncSupplierMode() {
+        var isEmlPdf = selectedIsEmlPdf();
+        form.classList.toggle('is-eml-pdf-supplier', isEmlPdf);
+        if (autoGenerateInput) autoGenerateInput.value = '0';
+        setText(modeCopy, isEmlPdf ? modeCopy.dataset.emlPdfCopy : modeCopy.dataset.defaultCopy);
+        setText(uploadTitle, isEmlPdf ? uploadTitle.dataset.emlPdfTitle : uploadTitle.dataset.defaultTitle);
+        setText(uploadSub, isEmlPdf ? uploadSub.dataset.emlPdfSub : uploadSub.dataset.defaultSub);
+        setText(uploadChip, isEmlPdf ? uploadChip.dataset.emlPdfChip : uploadChip.dataset.defaultChip);
+        setText(footerHint, isEmlPdf ? footerHint.dataset.emlPdfHint : footerHint.dataset.defaultHint);
+        for (var i = 0; i < fallbackInputs.length; i++) {
+            fallbackInputs[i].disabled = isEmlPdf;
+        }
+    }
+
+    if (supplierSelect) {
+        supplierSelect.addEventListener('change', syncSupplierMode);
+        syncSupplierMode();
+    }
+
     var autoPreviewInput = form.querySelector('[data-auto-preview]');
     if (autoPreviewInput) {
         autoPreviewInput.addEventListener('change', function () {
             if (autoPreviewInput.files && autoPreviewInput.files.length > 0) {
+                if (autoGenerateInput) {
+                    autoGenerateInput.value = '0';
+                }
                 form.requestSubmit();
             }
         });
@@ -216,6 +419,7 @@
             });
         })(fileInputs[i]);
     }
+
 })();
 </script>
 </body>

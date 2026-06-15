@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 from typing import Sequence
 
@@ -153,6 +154,22 @@ def run_ufo_cover_processor(
     preview_dir: Path,
     result_json: Path,
 ) -> dict[str, object]:
+    if getattr(sys, "frozen", False):
+        from app.modules.ufo_mail.cover_processor import process_ufo_document
+
+        result = process_ufo_document(
+            input_path=input_path,
+            output_pdf=output_pdf,
+            ufo_no=ufo_no,
+            report_json=report_json,
+            report_csv=report_csv,
+            preview_dir=preview_dir,
+        )
+        payload = asdict(result)
+        result_json.parent.mkdir(parents=True, exist_ok=True)
+        result_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return payload
+
     python_exe = resolve_yolo_python()
     command = [
         str(python_exe),

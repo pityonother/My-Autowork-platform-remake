@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -8,6 +9,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from email import policy
 from email.parser import BytesParser
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +24,18 @@ openpyxl = lazy_module("openpyxl")
 xlrd = lazy_module("xlrd")
 
 BOOKING_TEMPLATE_NAME = "booking_template_zh.xlsx"
+COUNTRY_ABBR_ENV_VAR = "BOOKING_COUNTRY_ABBR_WORKBOOK"
+COUNTRY_ABBR_WORKBOOK_NAME = "国别简写（suppliers）.xlsx"
+COUNTRY_ABBR_WORKBOOK_CANDIDATES = [
+    RUNTIME_DIR / "booking" / COUNTRY_ABBR_WORKBOOK_NAME,
+    RUNTIME_DIR / COUNTRY_ABBR_WORKBOOK_NAME,
+    RESOURCE_DIR / COUNTRY_ABBR_WORKBOOK_NAME,
+    Path.cwd() / COUNTRY_ABBR_WORKBOOK_NAME,
+    Path.home() / "Downloads" / COUNTRY_ABBR_WORKBOOK_NAME,
+    Path.home() / "Downloads" / "国别简写（suppliers） (1).xlsx",
+]
+COUNTRY_ABBR_HEADER = "简称"
+COUNTRY_LOOKUP_HEADERS = ("中文", "英文", "简称", "原产国")
 
 
 @dataclass
@@ -42,10 +56,33 @@ class BookingPreview:
     purchaser: str = ""
     delivery_method: str = ""
     carrier_name: str = ""
+    hbl_no: str = ""
+    booking_date: str = ""
+    delivery_to_hub_date: str = ""
+    shipper: str = ""
+    contact_person: str = "NA"
+    tel: str = "NA"
+    contact_email: str = "NA"
+    pdf_page_count: int = 0
+    validation_sections: list[Any] = field(default_factory=list)
+
+    @property
+    def validation_error_count(self) -> int:
+        count = 0
+        for section in self.validation_sections:
+            count += sum(1 for item in getattr(section, "items", []) if getattr(item, "status", "") == "error")
+        return count
+
+    @property
+    def validation_warning_count(self) -> int:
+        count = 0
+        for section in self.validation_sections:
+            count += sum(1 for item in getattr(section, "items", []) if getattr(item, "status", "") == "warning")
+        return count
 
     @property
     def can_generate(self) -> bool:
-        return not self.errors and bool(self.rows)
+        return not self.errors and bool(self.rows) and self.validation_error_count == 0
 
 
 @dataclass
@@ -182,6 +219,90 @@ def as_text(value: Any) -> str:
     if dec == dec.to_integral_value():
         return f"{dec:.0f}"
     return format(dec, "f").rstrip("0").rstrip(".")
+
+
+def _country_lookup_key(value: Any) -> str:
+    text = as_text(value).upper()
+    return re.sub(r"[\s\r\n\t\-_/（）()]+", "", text)
+
+
+def _country_lookup_tokens(value: Any) -> list[str]:
+    text = as_text(value)
+    if not text:
+        return []
+    parts = [text, *re.split(r"[-（）()]", text)]
+    upper_text = text.upper()
+    if " OF " in upper_text:
+        parts.append(text[upper_text.rfind(" OF ") + 4 :])
+    return [item for item in parts if item.strip()]
+
+
+def _iter_country_abbr_workbook_candidates():
+    env_path = os.environ.get(COUNTRY_ABBR_ENV_VAR, "").strip()
+    if env_path:
+        yield Path(env_path).expanduser()
+    yield from COUNTRY_ABBR_WORKBOOK_CANDIDATES
+
+
+def _first_existing_country_abbr_workbook() -> Path | None:
+    for candidate in _iter_country_abbr_workbook_candidates():
+        if candidate.exists():
+            return candidate
+    return None
+
+
+@lru_cache(maxsize=4)
+def _load_country_abbr_lookup(path_text: str, mtime_ns: int) -> dict[str, str]:
+    _ = mtime_ns
+    workbook = openpyxl.load_workbook(path_text, read_only=True, data_only=True)
+    sheet = workbook["COO简称"] if "COO简称" in workbook.sheetnames else workbook[workbook.sheetnames[0]]
+    rows = sheet.iter_rows(values_only=True)
+    try:
+        headers = [as_text(value) for value in next(rows)]
+    except StopIteration:
+        return {}
+    try:
+        abbr_col = headers.index(COUNTRY_ABBR_HEADER)
+    except ValueError:
+        return {}
+    key_cols = [index for index, header in enumerate(headers) if header in COUNTRY_LOOKUP_HEADERS]
+    lookup: dict[str, str] = {}
+    for row in rows:
+        if abbr_col >= len(row):
+            continue
+        abbr = as_text(row[abbr_col]).upper()
+        if not abbr:
+            continue
+        for col in key_cols:
+            if col >= len(row):
+                continue
+            for token in _country_lookup_tokens(row[col]):
+                key = _country_lookup_key(token)
+                if key:
+                    lookup[key] = abbr
+    return lookup
+
+
+def load_country_abbr_lookup() -> tuple[dict[str, str], str]:
+    workbook = _first_existing_country_abbr_workbook()
+    if workbook is None:
+        return {}, ""
+    lookup = _load_country_abbr_lookup(str(workbook), workbook.stat().st_mtime_ns)
+    if not lookup:
+        return {}, f"国别简称表缺少 {COUNTRY_ABBR_HEADER} 或可匹配的国别数据：{workbook}"
+    return lookup, ""
+
+
+def is_origin_target_column(column: str) -> bool:
+    text = str(column or "").lower()
+    return "made in" in text or "产地" in text or "產地" in text
+
+
+def country_abbr_for(value: Any, lookup: dict[str, str]) -> Any:
+    text = as_text(value)
+    if not text or not lookup:
+        return value
+    return lookup.get(_country_lookup_key(text), value)
 
 
 def as_number(value: Any) -> int | float | None:
@@ -427,6 +548,39 @@ def resolve_source_rows(source_path: Path, packadc_path: Path | None, rule: Any)
     return detail_rows, packadc_rows, detail_headers, warnings
 
 
+def build_flex_texas_preview(*, session_id: str, source_path: Path) -> BookingPreview:
+    from app.modules.booking.flex_texas import (
+        FLEX_TEXAS_BOOKING_COLUMNS,
+        flex_texas_rows_for_template,
+        parse_flex_texas_eml,
+    )
+
+    extraction = parse_flex_texas_eml(source_path)
+    return BookingPreview(
+        session_id=session_id,
+        supplier="FLEX-TEXAS",
+        source_filename=source_path.name,
+        pack_filename=extraction.source_pdf,
+        rows=flex_texas_rows_for_template(extraction),
+        columns=list(FLEX_TEXAS_BOOKING_COLUMNS),
+        warnings=extraction.warnings,
+        errors=[],
+        detail_count=len(extraction.lines),
+        packadc_count=0,
+        email_subject="",
+        mawb_no=extraction.mbl_no,
+        purchaser="",
+        delivery_method=extraction.delivery_party,
+        carrier_name=extraction.transport_company,
+        hbl_no=extraction.hbl_no,
+        booking_date=datetime.now().strftime("%Y/%m/%d"),
+        delivery_to_hub_date=extraction.delivery_to_hub_date,
+        shipper=extraction.shipper,
+        pdf_page_count=extraction.pdf_page_count,
+        validation_sections=extraction.validation_sections,
+    )
+
+
 def build_booking_preview(
     *,
     session_id: str | None,
@@ -439,6 +593,8 @@ def build_booking_preview(
         raise ValueError(f"不支持的供应商：{supplier}")
     rule = SUPPLIER_RULES[supplier]
     session_id = session_id or uuid.uuid4().hex[:12]
+    if getattr(rule, "SOURCE_KIND", "") == "eml_pdf":
+        return build_flex_texas_preview(session_id=session_id, source_path=source_path)
     warnings: list[str] = []
     if not _looks_like_source_name(source_path.name):
         warnings.append("源文件名不像 CCIXLS/INV 文件，请确认是否上传了正确的客户源文件。")
@@ -511,6 +667,11 @@ def build_booking_preview(
     carton_column = zero_columns[2] if len(zero_columns) > 2 else ""
     qty_column = next((key for key in rule.COLUMN_MAP if normalize_key(key) == normalize_key("数量")), "数量")
     part_no_column = next((key for key in rule.COLUMN_MAP if normalize_key(key) == normalize_key("启益料号")), "启益料号")
+    origin_columns = [column for column in columns if is_origin_target_column(column)]
+    country_lookup, country_warning = load_country_abbr_lookup()
+    if country_warning:
+        warnings.append(country_warning)
+    unmapped_origins: set[str] = set()
 
     output_rows: list[dict[str, Any]] = []
     for index, detail_row in enumerate(detail_rows):
@@ -521,6 +682,13 @@ def build_booking_preview(
             output[target_column] = clean_value(get_source_value(source, source_column), cleaner)
         for column, value in rule.CONSTANTS.items():
             output[column] = value
+
+        for column in origin_columns:
+            origin_value = output.get(column, "")
+            mapped_origin = country_abbr_for(origin_value, country_lookup)
+            output[column] = mapped_origin
+            if country_lookup and as_text(origin_value) and _country_lookup_key(origin_value) not in country_lookup:
+                unmapped_origins.add(as_text(origin_value))
 
         quantity = output.get("数量", output.get(qty_column, 0) if qty_column else 0)
         for column in getattr(rule, "QUANTITY_COPY_COLUMNS", []):
@@ -540,6 +708,9 @@ def build_booking_preview(
         if "e+" in part_no.lower() or len(part_no) < 6:
             warnings.append(f"第 {index + 1} 行启益料号疑似异常：{part_no}")
         output_rows.append(output)
+
+    if unmapped_origins:
+        warnings.append(f"国别简称表未匹配以下产地：{', '.join(sorted(unmapped_origins))}")
 
     if supplier == "SIL-FUCA" and output_rows:
         first_extra = pack_extras[0] if pack_extras else {}
@@ -609,6 +780,27 @@ def _copy_row_style(ws: Worksheet, source_row: int, target_row: int) -> None:
             target.protection = copy.copy(source.protection)
 
 
+def _insert_rows_preserving_lower_merges(ws: Worksheet, insert_at: int, amount: int) -> None:
+    shifted_ranges: list[tuple[int, int, int, int]] = []
+    for merged_range in list(ws.merged_cells.ranges):
+        if merged_range.max_row < insert_at:
+            continue
+        min_row = merged_range.min_row
+        max_row = merged_range.max_row
+        if min_row >= insert_at:
+            min_row += amount
+            max_row += amount
+        else:
+            max_row += amount
+        shifted_ranges.append((min_row, merged_range.min_col, max_row, merged_range.max_col))
+        ws.unmerge_cells(str(merged_range))
+
+    ws.insert_rows(insert_at, amount)
+
+    for min_row, min_col, max_row, max_col in shifted_ranges:
+        ws.merge_cells(start_row=min_row, start_column=min_col, end_row=max_row, end_column=max_col)
+
+
 def _unmerge_ranges_intersecting_rows(ws: Worksheet, start_row: int, end_row: int, style_source_row: int) -> None:
     for merged_range in list(ws.merged_cells.ranges):
         if merged_range.max_row < start_row or merged_range.min_row > end_row:
@@ -631,10 +823,113 @@ def _unmerge_ranges_intersecting_rows(ws: Worksheet, start_row: int, end_row: in
                     target.protection = copy.copy(source.protection)
 
 
+def _set_if_cell_exists(ws: Worksheet, cell_ref: str, value: Any) -> None:
+    ws[cell_ref].value = value
+
+
+def _write_flex_texas_workbook(
+    preview: BookingPreview,
+    rule: Any,
+    output_dir: Path | None = None,
+    template_path: Path | None = None,
+) -> Path:
+    if not preview.can_generate:
+        raise ValueError("当前预览有错误，不能生成 booking form。")
+    template_path = template_path or get_default_booking_template(rule)
+    output_dir = output_dir or (RUNTIME_DIR / "outputs")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    wb = openpyxl.load_workbook(template_path)
+    ws = wb[wb.sheetnames[0]]
+    _set_if_cell_exists(ws, "C4", preview.booking_date or datetime.now().strftime("%Y/%m/%d"))
+    _set_if_cell_exists(ws, "G4", preview.delivery_to_hub_date)
+    _set_if_cell_exists(ws, "K4", preview.mawb_no)
+    _set_if_cell_exists(ws, "N4", preview.hbl_no)
+    _set_if_cell_exists(ws, "C5", preview.shipper)
+    _set_if_cell_exists(ws, "K5", preview.delivery_method)
+    _set_if_cell_exists(ws, "O5", preview.carrier_name)
+    _set_if_cell_exists(ws, "C6", preview.contact_person or "NA")
+    _set_if_cell_exists(ws, "G6", preview.tel or "NA")
+    _set_if_cell_exists(ws, "S6", preview.contact_email or "NA")
+
+    header_map = _header_column_map(ws, rule.HEADER_ROW)
+    missing_targets = [column for column in preview.columns if normalize_key(column) not in header_map]
+    if missing_targets:
+        raise ValueError(f"smooth booking 模板缺少目标列：{', '.join(missing_targets)}")
+
+    data_start = rule.DATA_START_ROW
+    data_end = rule.DATA_END_ROW
+    total_row = _find_total_row(ws, data_start)
+    available = max(0, min(data_end, total_row - 1) - data_start + 1)
+    needed = len(preview.rows)
+    if needed > available:
+        extra_rows = needed - available
+        _insert_rows_preserving_lower_merges(ws, total_row, extra_rows)
+        for offset in range(extra_rows):
+            _copy_row_style(ws, data_end, total_row + offset)
+            ws.cell(total_row + offset, 1).value = available + offset + 1
+        total_row += extra_rows
+
+    final_data_end = data_start + max(needed, available) - 1
+    _unmerge_ranges_intersecting_rows(ws, data_start, final_data_end, data_end)
+    for row_index in range(data_start, final_data_end + 1):
+        ws.cell(row_index, 1).value = row_index - data_start + 1
+        for col_index in range(2, ws.max_column + 1):
+            ws.cell(row_index, col_index).value = None
+
+    text_targets = {normalize_key(column) for column in getattr(rule, "TEXT_TARGET_COLUMNS", set())}
+    for index, row_data in enumerate(preview.rows):
+        excel_row = data_start + index
+        ws.cell(excel_row, 1).value = index + 1
+        for target_column, value in row_data.items():
+            col = header_map.get(normalize_key(target_column))
+            if not col:
+                continue
+            cell = ws.cell(excel_row, col)
+            cell.value = value
+            if normalize_key(target_column) in text_targets:
+                cell.number_format = "@"
+
+    totals = {
+        "Cartons*": _sum_preview_column(preview.rows, "Cartons*"),
+        "Pallet*": _sum_preview_column(preview.rows, "Pallet*"),
+        "G.Wt*": _sum_preview_column(preview.rows, "G.Wt*"),
+        "CBM * ": round(_sum_preview_column(preview.rows, "CBM * "), 2),
+        "Quantity *": _sum_preview_column(preview.rows, "Quantity *"),
+        "Total Amount *": _sum_preview_column(preview.rows, "Total Amount *"),
+    }
+    ws.cell(total_row, 1).value = "Total"
+    for target_column, value in totals.items():
+        col = header_map.get(normalize_key(target_column))
+        if col:
+            ws.cell(total_row, col).value = value
+
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    output_path = output_dir / f"flex_texas_booking_{preview.session_id}_{timestamp}.xlsx"
+    wb.save(output_path)
+    preview.output_path = output_path
+    return output_path
+
+
+def _sum_preview_column(rows: list[dict[str, Any]], column: str) -> int | float:
+    total = Decimal("0")
+    for row in rows:
+        value = row.get(column, 0)
+        try:
+            total += Decimal(str(value or 0).replace(",", ""))
+        except InvalidOperation:
+            continue
+    if total == total.to_integral_value():
+        return int(total)
+    return float(total)
+
+
 def write_booking_workbook(preview: BookingPreview, output_dir: Path | None = None, template_path: Path | None = None) -> Path:
     if not preview.can_generate:
         raise ValueError("当前预览有错误，不能生成 booking form。")
     rule = SUPPLIER_RULES[preview.supplier]
+    if getattr(rule, "SOURCE_KIND", "") == "eml_pdf":
+        return _write_flex_texas_workbook(preview, rule, output_dir=output_dir, template_path=template_path)
     template_path = template_path or get_default_booking_template(rule)
     output_dir = output_dir or (RUNTIME_DIR / "outputs")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -664,7 +959,7 @@ def write_booking_workbook(preview: BookingPreview, output_dir: Path | None = No
     if needed > available:
         extra_rows = needed - available
         insert_at = total_row
-        ws.insert_rows(insert_at, extra_rows)
+        _insert_rows_preserving_lower_merges(ws, insert_at, extra_rows)
         for offset in range(extra_rows):
             _copy_row_style(ws, data_end, insert_at + offset)
             ws.cell(insert_at + offset, 1).value = available + offset + 1
