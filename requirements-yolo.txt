@@ -1,6 +1,7 @@
 # UFO RH cover detection runtime.
+# The YOLO model file is tracked at app/modules/ufo_mail/models/.
 # The project package intentionally does not include .venv-yolo.
-# Install torch/torchvision from the PyTorch index that matches the target CUDA/CPU environment.
+# Install torch/torchvision from the PyTorch index that matches the target Windows/Mac hardware.
 ultralytics==8.4.52
 opencv-python==4.13.0.92
 numpy==2.4.4
@@ -10,4 +11,3 @@ scipy==1.17.1
 matplotlib==3.10.9
 python-dateutil==2.9.0.post0
 typing_extensions==4.15.0
-

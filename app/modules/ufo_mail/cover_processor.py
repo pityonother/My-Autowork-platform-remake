@@ -23,7 +23,10 @@ ImageSequence = lazy_module("PIL.ImageSequence")
 
 
 SUPPORTED_DOCUMENT_SUFFIXES = {".pdf", ".tif", ".tiff"}
-DEFAULT_MODEL_PATH = APP_DIR / "runtime" / "yolo_runs" / "ufo_rh_sticker_final_20260521" / "weights" / "best.pt"
+PACKAGED_MODEL_PATH = APP_DIR / "app" / "modules" / "ufo_mail" / "models" / "ufo_rh_sticker_final_20260521.pt"
+LEGACY_RUNTIME_MODEL_PATH = APP_DIR / "runtime" / "yolo_runs" / "ufo_rh_sticker_final_20260521" / "weights" / "best.pt"
+DEFAULT_MODEL_PATH = PACKAGED_MODEL_PATH
+AUTO_DEVICE_VALUES = {"", "auto", "default"}
 AUTO_CONFIDENCE = 0.70
 REVIEW_CONFIDENCE = 0.50
 BOX_PAD_RATIO = 0.08
@@ -84,6 +87,34 @@ class FirstPageReplacement:
 
 def is_supported_ufo_document(path: Path) -> bool:
     return path.suffix.lower() in SUPPORTED_DOCUMENT_SUFFIXES
+
+
+def resolve_model_path(model_path: Path | None = None) -> Path:
+    candidates: list[Path] = []
+    if model_path is not None:
+        candidates.append(model_path)
+
+    env_model = os.environ.get("UFO_YOLO_MODEL", "").strip()
+    if env_model:
+        candidates.append(Path(env_model).expanduser())
+
+    candidates.extend([PACKAGED_MODEL_PATH, LEGACY_RUNTIME_MODEL_PATH])
+    checked: list[Path] = []
+    for candidate in candidates:
+        resolved = candidate if candidate.is_absolute() else APP_DIR / candidate
+        checked.append(resolved)
+        if resolved.exists():
+            return resolved
+
+    checked_text = "; ".join(str(path) for path in checked)
+    raise FileNotFoundError(f"YOLO model not found. Checked: {checked_text}")
+
+
+def normalize_yolo_device(device: str | None) -> str:
+    value = str(device or "").strip()
+    if value.lower() in AUTO_DEVICE_VALUES:
+        return ""
+    return value
 
 
 def load_font(size: int) -> Any:
@@ -451,8 +482,9 @@ def detect_yolo_boxes(
         "conf": review_confidence,
         "verbose": False,
     }
-    if device:
-        kwargs["device"] = device
+    normalized_device = normalize_yolo_device(device)
+    if normalized_device:
+        kwargs["device"] = normalized_device
     result = model.predict(image, **kwargs)[0]
     detections = []
     rows: list[CoverReportRow] = []
@@ -526,7 +558,7 @@ def process_ufo_document(
     report_json: Path,
     report_csv: Path,
     preview_dir: Path,
-    model_path: Path = DEFAULT_MODEL_PATH,
+    model_path: Path | None = None,
     dpi: int = 300,
     auto_confidence: float = AUTO_CONFIDENCE,
     review_confidence: float = REVIEW_CONFIDENCE,
@@ -537,8 +569,7 @@ def process_ufo_document(
         raise ValueError("UFO number is required.")
     if not input_path.exists():
         raise FileNotFoundError(input_path)
-    if not model_path.exists():
-        raise FileNotFoundError(f"YOLO model not found: {model_path}")
+    resolved_model_path = resolve_model_path(model_path)
 
     pages = load_document_pages(input_path, dpi=dpi)
     if not pages:
@@ -546,7 +577,7 @@ def process_ufo_document(
 
     from ultralytics import YOLO
 
-    model = YOLO(str(model_path))
+    model = YOLO(str(resolved_model_path))
     report_rows: list[CoverReportRow] = []
     auto_cover_count = 0
     review_count = 0
@@ -588,7 +619,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("input_path", type=Path)
     parser.add_argument("output_pdf", type=Path)
     parser.add_argument("--ufo-no", required=True)
-    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL_PATH)
+    parser.add_argument("--model", type=Path, default=None)
     parser.add_argument("--report-json", type=Path, required=True)
     parser.add_argument("--report-csv", type=Path, required=True)
     parser.add_argument("--preview-dir", type=Path, required=True)
@@ -596,7 +627,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dpi", type=int, default=300)
     parser.add_argument("--auto-confidence", type=float, default=AUTO_CONFIDENCE)
     parser.add_argument("--review-confidence", type=float, default=REVIEW_CONFIDENCE)
-    parser.add_argument("--device", default=os.environ.get("UFO_YOLO_DEVICE", "0"))
+    parser.add_argument("--device", default=os.environ.get("UFO_YOLO_DEVICE", "auto"))
     return parser.parse_args()
 
 
