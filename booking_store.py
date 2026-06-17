@@ -183,8 +183,14 @@ def extract_all_booking_attachments_from_eml(eml_path: Path, target_dir: Path) -
 
 def get_default_booking_template(rule: Any | None = None) -> Path:
     rule_candidates = [Path(item) for item in getattr(rule, "TEMPLATE_CANDIDATES", [])]
+    for candidate in rule_candidates:
+        if candidate.exists():
+            return candidate
+    if getattr(rule, "REQUIRE_TEMPLATE_CANDIDATE", False):
+        template_name = getattr(rule, "FLEX_TEXAS_TEMPLATE_NAME", "供应商专用 booking 模板")
+        locations = "\n".join(f"- {candidate}" for candidate in rule_candidates)
+        raise FileNotFoundError(f"未找到 {template_name}。请先把模板放到以下任一位置：\n{locations}")
     candidates = [
-        *rule_candidates,
         RESOURCE_DIR / BOOKING_TEMPLATE_NAME,
         Path.cwd() / BOOKING_TEMPLATE_NAME,
         Path(r"C:/Users/ac/Desktop/booking data from customer/booking_template_zh (1).xlsx"),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.modules.booking.flex_texas import FLEX_TEXAS_BOOKING_COLUMNS, SUPPLIER_NAME
+from app_paths import RESOURCE_DIR, RUNTIME_DIR
 
 
 SOURCE_KIND = "eml_pdf"
@@ -10,7 +11,13 @@ SOURCE_SHEETS = {
     "packadc": [],
 }
 
+FLEX_TEXAS_TEMPLATE_NAME = "smooth booking template.xlsx"
+REQUIRE_TEMPLATE_CANDIDATE = True
 TEMPLATE_CANDIDATES = [
+    RUNTIME_DIR / "booking" / FLEX_TEXAS_TEMPLATE_NAME,
+    RUNTIME_DIR / FLEX_TEXAS_TEMPLATE_NAME,
+    RESOURCE_DIR / FLEX_TEXAS_TEMPLATE_NAME,
+    RESOURCE_DIR / "samples" / "booking" / FLEX_TEXAS_TEMPLATE_NAME,
     r"C:/Users/ac/Desktop/新建文件夹/smooth booking template.xlsx",
 ]
 
@@ -25,4 +32,3 @@ TEXT_TARGET_COLUMNS = {"PO No. *", "Invoice No.*", "Customer Part No. *", "Tray 
 
 def post_process(detail_rows, packadc_rows):
     return [{} for _row in detail_rows], []
-

@@ -23,6 +23,24 @@ def test_booking_rule_registry_exposes_expected_suppliers() -> None:
     assert "VC_DZYQ" in get_supplier_names()
 
 
+def test_supplier_specific_template_does_not_fallback_to_default(tmp_path) -> None:
+    rule = SimpleNamespace(
+        TEMPLATE_CANDIDATES=[tmp_path / "smooth booking template.xlsx"],
+        REQUIRE_TEMPLATE_CANDIDATE=True,
+        FLEX_TEXAS_TEMPLATE_NAME="smooth booking template.xlsx",
+    )
+
+    try:
+        booking_store.get_default_booking_template(rule)
+    except FileNotFoundError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("supplier-specific templates must not fall back to booking_template_zh.xlsx")
+
+    assert "smooth booking template.xlsx" in message
+    assert str(tmp_path / "smooth booking template.xlsx") in message
+
+
 def test_weikeng_total_box_count_is_written_only_on_first_row() -> None:
     rule = SUPPLIER_RULES["SIL-WEIKENG"]
 
