@@ -76,6 +76,25 @@ def test_first_page_ufo_number_uses_legible_calibrated_fonts() -> None:
     assert FIRST_PAGE_FONT_SIZE_BY_NAME["pod_top_barcode_text"] >= 52
 
 
+def test_load_font_prefers_explicit_pod_font_path(monkeypatch, tmp_path) -> None:
+    from app.modules.ufo_mail import cover_processor
+
+    font_path = tmp_path / "pod-font.ttf"
+    font_path.write_bytes(b"font")
+    sentinel = object()
+    calls: list[tuple[str, int]] = []
+
+    def fake_truetype(path: str, size: int):
+        calls.append((path, size))
+        return sentinel
+
+    monkeypatch.setattr(cover_processor.ImageFont, "truetype", fake_truetype)
+    monkeypatch.setenv("UFO_POD_FONT_PATH", str(font_path))
+
+    assert cover_processor.load_font(64) is sentinel
+    assert calls == [(str(font_path), 64)]
+
+
 def test_fit_font_size_keeps_calibrated_ufo_text_inside_cover_box() -> None:
     from app.modules.ufo_mail.cover_processor import fallback_first_page_replacements, fit_font_size_to_box
     from PIL import Image
