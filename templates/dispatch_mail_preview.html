@@ -119,9 +119,9 @@
                                 >
                                     <option value="">暂不绑定</option>
                                     {% for dqth in result.dqths %}
-                                    {% if dqth.matched_ticket_index is none or dqth in ticket.dqths %}
+                                    {% if dqth in result.unmatched_dqths or dqth in ticket.dqths %}
                                     <option
-                                        value="{{ loop.index0 }}"
+                                        value="dqth:{{ loop.index0 }}"
                                         data-preview-href="/modules/dispatch-mail/source/{{ session_id }}/dqth/{{ dqth.preview_index }}"
                                         data-open-href="/modules/dispatch-mail/source-file/{{ session_id }}/dqth/{{ dqth.preview_index }}"
                                         data-name="{{ dqth.attachment.original_name }}"
@@ -129,6 +129,15 @@
                                         {% if ticket.dqth is sameas dqth %}selected{% endif %}
                                     >{{ dqth.attachment.original_name }}</option>
                                     {% endif %}
+                                    {% endfor %}
+                                    {% for so_candidate in result.unmatched_sos %}
+                                    <option
+                                        value="so:{{ so_candidate.preview_index }}"
+                                        data-preview-href="/modules/dispatch-mail/source/{{ session_id }}/so/{{ so_candidate.preview_index }}"
+                                        data-open-href="/modules/dispatch-mail/source-file/{{ session_id }}/so/{{ so_candidate.preview_index }}"
+                                        data-name="{{ so_candidate.attachment.original_name }}"
+                                        data-ext="{{ '.' ~ so_candidate.attachment.original_name.rsplit('.', 1)[1] if '.' in so_candidate.attachment.original_name else '.bin' }}"
+                                    >[SO candidate] {{ so_candidate.attachment.original_name }}</option>
                                     {% endfor %}
                                 </select>
                             </label>
@@ -226,9 +235,9 @@
                                 >
                                     <option value="">暂不绑定</option>
                                     {% for so in result.sos %}
-                                    {% if so.matched_ticket_index is none or so in ticket.sos %}
+                                    {% if so in result.unmatched_sos or so in ticket.sos %}
                                     <option
-                                        value="{{ loop.index0 }}"
+                                        value="so:{{ loop.index0 }}"
                                         data-preview-href="/modules/dispatch-mail/source/{{ session_id }}/so/{{ so.preview_index }}"
                                         data-open-href="/modules/dispatch-mail/source-file/{{ session_id }}/so/{{ so.preview_index }}"
                                         data-name="{{ so.attachment.original_name }}"
@@ -236,6 +245,15 @@
                                         {% if ticket.so is sameas so %}selected{% endif %}
                                     >{{ so.attachment.original_name }}</option>
                                     {% endif %}
+                                    {% endfor %}
+                                    {% for dqth_candidate in result.unmatched_dqths %}
+                                    <option
+                                        value="dqth:{{ dqth_candidate.preview_index }}"
+                                        data-preview-href="/modules/dispatch-mail/source/{{ session_id }}/dqth/{{ dqth_candidate.preview_index }}"
+                                        data-open-href="/modules/dispatch-mail/source-file/{{ session_id }}/dqth/{{ dqth_candidate.preview_index }}"
+                                        data-name="{{ dqth_candidate.attachment.original_name }}"
+                                        data-ext="{{ '.' ~ dqth_candidate.attachment.original_name.rsplit('.', 1)[1] if '.' in dqth_candidate.attachment.original_name else '.bin' }}"
+                                    >[PL candidate] {{ dqth_candidate.attachment.original_name }}</option>
                                     {% endfor %}
                                 </select>
                             </label>

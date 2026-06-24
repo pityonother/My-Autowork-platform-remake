@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 from PIL import Image
 
 from dispatch_mail_store import (
+    DispatchAttachment,
+    DispatchDqth,
+    DispatchParseResult,
+    DispatchSo,
+    DispatchTicket,
     build_ticket_snapshot_rows,
     match_flex_rtx_dqths,
     render_ticket_snapshot_image,
+    resolve_assignments,
     ticket_dqths,
 )
 from app.modules.dispatch_mail.rules.match import content_match_score, extract_match_tokens
@@ -112,6 +119,107 @@ def make_flex_pl(pos: list[str], cartons: str, pallets: str, gross: str):
         matched_ticket_index=None,
         status="未匹配",
     )
+
+
+def make_dispatch_attachment(tmp_path: Path, name: str) -> DispatchAttachment:
+    path = tmp_path / name
+    path.write_text("sample", encoding="utf-8")
+    return DispatchAttachment(original_name=name, stored_path=path, content_type="application/octet-stream")
+
+
+def make_dispatch_ticket(index: int = 1) -> DispatchTicket:
+    return DispatchTicket(
+        index=index,
+        tan_no=f"TAN#{index}",
+        customer_pos=[],
+        remark="",
+        cartons=Decimal("1"),
+        gross_weight=Decimal("1"),
+        pallets=Decimal("1"),
+        row_start=0,
+        row_end=0,
+    )
+
+
+def make_dispatch_result(tmp_path: Path, ticket: DispatchTicket) -> DispatchParseResult:
+    return DispatchParseResult(
+        session_id="test-session",
+        eml_name="source.eml",
+        attachments_dir=tmp_path,
+        output_dir=tmp_path,
+        master=None,
+        tickets=[ticket],
+    )
+
+
+def test_resolve_assignments_can_reclassify_so_as_dqth(tmp_path) -> None:
+    ticket = make_dispatch_ticket()
+    attachment = make_dispatch_attachment(tmp_path, "delivery-order.pdf")
+    so = DispatchSo(attachment=attachment, preview_index=0)
+    result = make_dispatch_result(tmp_path, ticket)
+    result.sos = [so]
+
+    resolve_assignments(result, {"dqth_match_1": "so:0"})
+
+    assert len(result.dqths) == 1
+    assert ticket.dqth is result.dqths[0]
+    assert ticket.dqth.attachment is attachment
+    assert ticket.dqth.matched_ticket_index == 0
+    assert so.matched_ticket_index is None
+    assert result.unmatched_sos == []
+
+
+def test_resolve_assignments_can_reclassify_dqth_as_so(tmp_path) -> None:
+    ticket = make_dispatch_ticket()
+    attachment = make_dispatch_attachment(tmp_path, "packing-list.xlsx")
+    dqth = DispatchDqth(
+        attachment=attachment,
+        customer_pos=[],
+        cartons=Decimal("0"),
+        gross_weight=Decimal("0"),
+        pallets=Decimal("0"),
+        preview_index=0,
+    )
+    result = make_dispatch_result(tmp_path, ticket)
+    result.dqths = [dqth]
+
+    resolve_assignments(result, {"so_match_1": "dqth:0"})
+
+    assert len(result.sos) == 1
+    assert ticket.so is result.sos[0]
+    assert ticket.so.attachment is attachment
+    assert ticket.so.matched_ticket_index == 0
+    assert dqth.matched_ticket_index is None
+    assert result.unmatched_dqths == []
+
+
+def test_resolve_assignments_preserves_multi_pl_when_primary_is_unchanged(tmp_path) -> None:
+    ticket = make_dispatch_ticket()
+    attachments = [
+        make_dispatch_attachment(tmp_path, "packing-list-1.xlsx"),
+        make_dispatch_attachment(tmp_path, "packing-list-2.xlsx"),
+    ]
+    dqths = [
+        DispatchDqth(
+            attachment=attachment,
+            customer_pos=[],
+            cartons=Decimal("0"),
+            gross_weight=Decimal("0"),
+            pallets=Decimal("0"),
+            preview_index=index,
+            matched_ticket_index=0,
+        )
+        for index, attachment in enumerate(attachments)
+    ]
+    ticket.dqths = list(dqths)
+    ticket.dqth = dqths[0]
+    result = make_dispatch_result(tmp_path, ticket)
+    result.dqths = dqths
+
+    resolve_assignments(result, {"dqth_match_1": "dqth:0"})
+
+    assert ticket_dqths(ticket) == dqths
+    assert [dqth.matched_ticket_index for dqth in dqths] == [0, 0]
 
 
 def test_flex_rtx_allows_multiple_pls_when_combined_totals_match() -> None:

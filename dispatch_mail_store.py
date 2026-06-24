@@ -284,6 +284,113 @@ def sync_ticket_attachment_lists(tickets: list[DispatchTicket]) -> None:
             ticket.so = ticket.sos[0]
 
 
+def attachment_match_key(attachment: DispatchAttachment) -> str:
+    try:
+        return str(attachment.stored_path.resolve())
+    except OSError:
+        return str(attachment.stored_path)
+
+
+def dispatch_item_match_key(item: Any) -> str:
+    return attachment_match_key(item.attachment)
+
+
+def find_dqth_by_attachment(result: DispatchParseResult, attachment: DispatchAttachment) -> DispatchDqth | None:
+    key = attachment_match_key(attachment)
+    for dqth in result.dqths:
+        if attachment_match_key(dqth.attachment) == key:
+            return dqth
+    return None
+
+
+def find_so_by_attachment(result: DispatchParseResult, attachment: DispatchAttachment) -> DispatchSo | None:
+    key = attachment_match_key(attachment)
+    for so in result.sos:
+        if attachment_match_key(so.attachment) == key:
+            return so
+    return None
+
+
+def ensure_dqth_candidate_for_so(result: DispatchParseResult, so: DispatchSo) -> DispatchDqth:
+    existing = find_dqth_by_attachment(result, so.attachment)
+    if existing:
+        return existing
+    dqth = DispatchDqth(
+        attachment=so.attachment,
+        customer_pos=[],
+        cartons=Decimal("0"),
+        gross_weight=Decimal("0"),
+        pallets=Decimal("0"),
+        preview_index=len(result.dqths),
+    )
+    result.dqths.append(dqth)
+    return dqth
+
+
+def ensure_so_candidate_for_dqth(result: DispatchParseResult, dqth: DispatchDqth) -> DispatchSo:
+    existing = find_so_by_attachment(result, dqth.attachment)
+    if existing:
+        return existing
+    so = DispatchSo(
+        attachment=dqth.attachment,
+        preview_index=len(result.sos),
+        score=0,
+    )
+    result.sos.append(so)
+    return so
+
+
+def parse_assignment_choice(raw_choice: str, default_role: str) -> tuple[str, int] | None:
+    value = raw_choice.strip()
+    if not value:
+        return None
+    if ":" in value:
+        role, index_text = value.split(":", 1)
+        role = role.strip().lower()
+        index_text = index_text.strip()
+    else:
+        role = default_role
+        index_text = value
+    if role not in {"dqth", "so"} or not index_text.isdigit():
+        return None
+    return role, int(index_text)
+
+
+def assignment_choice_matches_item(
+    result: DispatchParseResult,
+    target_role: str,
+    raw_choice: str,
+    current_item: Any,
+) -> bool:
+    parsed = parse_assignment_choice(raw_choice, target_role)
+    if not parsed:
+        return False
+    source_role, item_index = parsed
+    if target_role == "dqth" and source_role == "dqth":
+        return 0 <= item_index < len(result.dqths) and result.dqths[item_index] is current_item
+    if target_role == "so" and source_role == "so":
+        return 0 <= item_index < len(result.sos) and result.sos[item_index] is current_item
+    return False
+
+
+def resolve_assignment_item(result: DispatchParseResult, target_role: str, raw_choice: str) -> Any | None:
+    parsed = parse_assignment_choice(raw_choice, target_role)
+    if not parsed:
+        return None
+    source_role, item_index = parsed
+    if target_role == "dqth":
+        if source_role == "dqth" and 0 <= item_index < len(result.dqths):
+            return result.dqths[item_index]
+        if source_role == "so" and 0 <= item_index < len(result.sos):
+            return ensure_dqth_candidate_for_so(result, result.sos[item_index])
+    if target_role == "so":
+        if source_role == "so" and 0 <= item_index < len(result.sos):
+            return result.sos[item_index]
+        if source_role == "dqth" and 0 <= item_index < len(result.dqths):
+            return ensure_so_candidate_for_dqth(result, result.dqths[item_index])
+    return None
+
+
 def safe_filename(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*]+', "_", name).strip() or "attachment"
 
@@ -1120,8 +1227,27 @@ def is_auto_attachment_name(*, current_name: str, original_name: str, suggested_
 
 
 def refresh_dispatch_match_status(result: DispatchParseResult) -> None:
-    result.unmatched_dqths = [item for item in result.dqths if all(item not in ticket_dqths(ticket) for ticket in result.tickets)]
-    result.unmatched_sos = [item for item in result.sos if all(item not in ticket_sos(ticket) for ticket in result.tickets)]
+    assigned_dqth_ids: set[int] = set()
+    assigned_so_ids: set[int] = set()
+    assigned_attachment_keys: set[str] = set()
+    for ticket in result.tickets:
+        for dqth in ticket_dqths(ticket):
+            assigned_dqth_ids.add(id(dqth))
+            assigned_attachment_keys.add(dispatch_item_match_key(dqth))
+        for so in ticket_sos(ticket):
+            assigned_so_ids.add(id(so))
+            assigned_attachment_keys.add(dispatch_item_match_key(so))
+
+    result.unmatched_dqths = [
+        item
+        for item in result.dqths
+        if id(item) not in assigned_dqth_ids and dispatch_item_match_key(item) not in assigned_attachment_keys
+    ]
+    result.unmatched_sos = [
+        item
+        for item in result.sos
+        if id(item) not in assigned_so_ids and dispatch_item_match_key(item) not in assigned_attachment_keys
+    ]
     warnings = list(result.base_warnings)
     if result.rule_profile == DISPATCH_RULE_GENERIC and result.tickets and len(result.dqths) != len(result.tickets):
         warnings.append(f"DQT 数量 {len(result.dqths)} 与 Tan# 票数 {len(result.tickets)} 不一致。")
@@ -1717,33 +1843,31 @@ def resolve_assignments(result: DispatchParseResult, form: dict[str, Any]) -> No
     for ticket in result.tickets:
         dqth_choices = form_values(f"dqth_match_{ticket.index}")
         so_choices = form_values(f"so_match_{ticket.index}")
-        if len(dqth_choices) == 1 and ticket.dqths and dqth_choices[0].isdigit():
-            current_primary_index = result.dqths.index(ticket.dqths[0]) if ticket.dqths[0] in result.dqths else -1
-            if int(dqth_choices[0]) == current_primary_index:
-                dqths_by_ticket[ticket.index] = list(ticket.dqths)
-            else:
-                dqths_by_ticket[ticket.index] = []
+        if (
+            len(dqth_choices) == 1
+            and ticket.dqths
+            and assignment_choice_matches_item(result, "dqth", dqth_choices[0], ticket.dqths[0])
+        ):
+            dqths_by_ticket[ticket.index] = list(ticket.dqths)
         else:
             dqths_by_ticket[ticket.index] = []
-        if len(so_choices) == 1 and ticket.sos and so_choices[0].isdigit():
-            current_primary_index = result.sos.index(ticket.sos[0]) if ticket.sos[0] in result.sos else -1
-            if int(so_choices[0]) == current_primary_index:
-                sos_by_ticket[ticket.index] = list(ticket.sos)
-            else:
-                sos_by_ticket[ticket.index] = []
+        if (
+            len(so_choices) == 1
+            and ticket.sos
+            and assignment_choice_matches_item(result, "so", so_choices[0], ticket.sos[0])
+        ):
+            sos_by_ticket[ticket.index] = list(ticket.sos)
         else:
             sos_by_ticket[ticket.index] = []
 
         for dqth_choice in dqth_choices:
-            if dqth_choice.isdigit():
-                dqth_index = int(dqth_choice)
-                if 0 <= dqth_index < len(result.dqths) and result.dqths[dqth_index] not in dqths_by_ticket[ticket.index]:
-                    dqths_by_ticket[ticket.index].append(result.dqths[dqth_index])
+            dqth = resolve_assignment_item(result, "dqth", dqth_choice)
+            if dqth and dqth not in dqths_by_ticket[ticket.index]:
+                dqths_by_ticket[ticket.index].append(dqth)
         for so_choice in so_choices:
-            if so_choice.isdigit():
-                so_index = int(so_choice)
-                if 0 <= so_index < len(result.sos) and result.sos[so_index] not in sos_by_ticket[ticket.index]:
-                    sos_by_ticket[ticket.index].append(result.sos[so_index])
+            so = resolve_assignment_item(result, "so", so_choice)
+            if so and so not in sos_by_ticket[ticket.index]:
+                sos_by_ticket[ticket.index].append(so)
 
     for dqth in result.dqths:
         dqth.matched_ticket_index = None
