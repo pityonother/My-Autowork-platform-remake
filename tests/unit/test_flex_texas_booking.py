@@ -336,6 +336,36 @@ def test_booking_xlsx_download_route_returns_attachment(monkeypatch, tmp_path: P
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     assert "attachment;" in response.headers["content-disposition"]
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.content.startswith(b"PK")
+
+
+def test_booking_xlsx_download_restores_persisted_session(monkeypatch, tmp_path: Path) -> None:
+    client = TestClient(booking_app)
+    session_id = "persisted-xlsx-route"
+    output_path = tmp_path / "booking.xlsx"
+    output_path.write_bytes(b"PK\x03\x04persisted-xlsx")
+    preview = BookingPreview(
+        session_id=session_id,
+        supplier="FLEX-TEXAS",
+        source_filename="source.eml",
+        pack_filename="source.pdf",
+        rows=[{"P/N": "TEST"}],
+        columns=["P/N"],
+    )
+    monkeypatch.setattr(booking_routes, "BOOKING_SESSION_DIR", tmp_path / "booking_sessions")
+    monkeypatch.setattr(booking_routes, "write_booking_output", lambda restored_preview: output_path)
+    booking_routes.persist_booking_session(session_id, {"booking_preview": preview})
+    booking_routes.SESSION_STORE.clear()
+
+    response = client.get(f"/modules/booking/generate/{session_id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "attachment;" in response.headers["content-disposition"]
     assert response.content.startswith(b"PK")
 
 
