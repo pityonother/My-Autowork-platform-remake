@@ -63,6 +63,22 @@ def test_sil_warehouse_mail_helpers_replace_mawb_and_warehouse_no(tmp_path) -> N
     )
 
 
+def test_sil_warehouse_mail_removes_obsolete_holiday_notice() -> None:
+    old_html = (
+        '<p class="MsoNormal"><span>香港仓：5月1日&amp;5月5日（全日休息）</span></p>'
+        "<p>香港仓库上下班时间：上午09:00-12:00</p>"
+    )
+    old_plain = "香港仓：5月1日&5月5日（全日休息）\r\n香港仓库上下班时间：上午09:00-12:00\r\n"
+
+    cleaned_html = mail_builder.remove_obsolete_sil_holiday_notice(old_html)
+    cleaned_plain = mail_builder.remove_obsolete_sil_holiday_notice(old_plain)
+
+    assert "香港仓：5月1日" not in cleaned_html
+    assert "香港仓：5月1日" not in cleaned_plain
+    assert "香港仓库上下班时间" in cleaned_html
+    assert "香港仓库上下班时间" in cleaned_plain
+
+
 def test_sil_warehouse_template_falls_back_to_packaged_default(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         mail_builder,
@@ -111,10 +127,14 @@ def test_generate_sil_warehouse_eml_uses_html_default_template(monkeypatch, tmp_
 
     message = BytesParser(policy=policy.default).parsebytes(output_path.read_bytes())
     html_part = message.get_body(preferencelist=("html",))
+    plain_part = message.get_body(preferencelist=("plain",))
 
     assert html_part is not None
+    assert plain_part is not None
     assert "98765432109" in html_part.get_content()
     assert "SIL26040490" in html_part.get_content()
+    assert "香港仓：5月1日" not in html_part.get_content()
+    assert "香港仓：5月1日" not in plain_part.get_content()
 
 
 def test_vc_dzyq_rule_maps_desktop_document_requirements(monkeypatch, tmp_path) -> None:

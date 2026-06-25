@@ -87,6 +87,19 @@ def replace_mail_template_values(content: str, mawb_no: str, warehouse_no: str) 
     return updated
 
 
+def remove_obsolete_sil_holiday_notice(content: str) -> str:
+    updated = re.sub(
+        r"(?is)<p\b[^>]*>.*?香港仓：5月1日(?:&amp;|&)5月5日（全日休息）.*?</p>",
+        "",
+        content,
+    )
+    return re.sub(
+        r"(?m)^[^\S\r\n]*香港仓：5月1日&5月5日（全日休息）[^\S\r\n]*(?:\r?\n)?",
+        "",
+        updated,
+    )
+
+
 def save_sil_fuca_warehouse_template_from_eml(eml_path: Path) -> dict[str, Any]:
     message = BytesParser(policy=policy.default).parsebytes(eml_path.read_bytes())
     html_part = message.get_body(preferencelist=("html",))
@@ -166,7 +179,6 @@ def build_sil_fuca_warehouse_mail_body(mawb_no: str, warehouse_no: str) -> str:
         "\r\n"
         "\r\n"
         "\r\n"
-        "香港仓：5月1日&5月5日（全日休息）\r\n"
         "香港仓库上下班时间：上午09:00-12:00（星期一到星期六） 下午13:30-17:00（星期一至星期五）\r\n"
         "注意东莞货物入仓要求：E33K和1339采购单别不同，货物，装箱单发票及入仓单要分开做\r\n"
         "1.从1/26号起，供应商删除BOOKING导入，仅保留\"MES导入\"一种途径来生成入仓单\r\n"
@@ -292,11 +304,15 @@ def generate_sil_fuca_warehouse_eml(
     message["To"] = "hong <hong@hkctwl.net>, lydia <lydia@hkctwl.net>, mavis <mavis@hkctwl.net>, sanford <sanford@hkctwl.net>, warehouse <warehouse@smooth-global.com>"
     message["Cc"] = "sil <sil@hkctwl.net>"
     template = load_sil_fuca_warehouse_template()
-    plain_body = replace_mail_template_values(template.get("plain") or "", mawb_no, warehouse_no).strip()
+    plain_body = remove_obsolete_sil_holiday_notice(
+        replace_mail_template_values(template.get("plain") or "", mawb_no, warehouse_no)
+    ).strip()
     if not plain_body:
-        plain_body = build_sil_fuca_warehouse_mail_body(mawb_no, warehouse_no)
+        plain_body = remove_obsolete_sil_holiday_notice(build_sil_fuca_warehouse_mail_body(mawb_no, warehouse_no))
     message.set_content(plain_body)
-    html_body = replace_mail_template_values(template.get("html") or "", mawb_no, warehouse_no).strip()
+    html_body = remove_obsolete_sil_holiday_notice(
+        replace_mail_template_values(template.get("html") or "", mawb_no, warehouse_no)
+    ).strip()
     if html_body:
         message.add_alternative(html_body, subtype="html")
         html_part = message.get_payload()[-1]

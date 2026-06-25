@@ -302,6 +302,18 @@ def test_generate_mail_from_saved_session_reuses_uploads_after_review_confirmati
     assert output_path.read_text(encoding="utf-8") == "UFO26052201.pdf"
 
 
+def test_ufo_mail_settings_use_default_recipients(monkeypatch, tmp_path) -> None:
+    import ufo_mail_store
+
+    monkeypatch.setattr(ufo_mail_store, "DB_PATH", tmp_path / "ufo_mail.db")
+
+    assert ufo_mail_store.get_ufo_mail_settings() == {
+        "to_email": "cn.shzmaterialshippingimport2023@flex.com",
+        "cc_email": "fexin@smooth-global.com",
+        "from_email": "",
+    }
+
+
 def test_ufo_mail_settings_survive_db_initializer(monkeypatch, tmp_path) -> None:
     import ufo_mail_store
 

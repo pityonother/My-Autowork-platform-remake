@@ -26,6 +26,8 @@ UFO_CONFIG_PACKAGE_TYPE = "ufo_mail_runtime_config"
 UFO_CONFIG_DB_NAME = "ufo_mail.db"
 UFO_CONFIG_MANIFEST_NAME = "manifest.json"
 UFO_CONFIG_SIGNATURE_PREFIX = "ufo_signature/"
+DEFAULT_UFO_TO_EMAIL = "cn.shzmaterialshippingimport2023@flex.com"
+DEFAULT_UFO_CC_EMAIL = "fexin@smooth-global.com"
 
 DEFAULT_ISSUES = [
     (
@@ -167,8 +169,8 @@ def get_ufo_mail_settings() -> dict[str, str]:
         rows = conn.execute("SELECT setting_key, setting_value FROM ufo_mail_settings").fetchall()
     settings = {row["setting_key"]: row["setting_value"] for row in rows}
     return {
-        "to_email": settings.get("to_email", ""),
-        "cc_email": settings.get("cc_email", ""),
+        "to_email": settings.get("to_email") or DEFAULT_UFO_TO_EMAIL,
+        "cc_email": settings.get("cc_email") or DEFAULT_UFO_CC_EMAIL,
         "from_email": settings.get("from_email", ""),
     }
 
