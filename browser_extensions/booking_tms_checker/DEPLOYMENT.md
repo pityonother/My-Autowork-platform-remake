@@ -13,7 +13,7 @@ python -m uvicorn booking_web_app:app --host 0.0.0.0 --port 8042
 同事电脑需要能打开：
 
 ```text
-http://Mac-mini-IP:8042/modules/booking/body-validation
+https://192.168.10.205/modules/booking/body-validation
 ```
 
 如果打不开，先检查 Mac mini 防火墙、端口、内网 IP 是否正确。
@@ -23,7 +23,7 @@ http://Mac-mini-IP:8042/modules/booking/body-validation
 在项目根目录运行：
 
 ```powershell
-python tools\build_booking_tms_checker_extension.py --server-base http://Mac-mini-IP:8042
+python tools\build_booking_tms_checker_extension.py --server-base https://192.168.10.205
 ```
 
 脚本会生成：
@@ -48,7 +48,7 @@ dist\booking_tms_checker_edge.zip
 1. SMOOTH TMS 右下角出现“Booking 质检”浮窗。
 2. 选择 `.xlsx` booking form。
 3. 点击“上传并打开筛查结果”。
-4. 新标签页打开 `http://Mac-mini-IP:8042/modules/booking/body-validation/session/...`。
+4. 新标签页打开 `https://192.168.10.205/modules/booking/body-validation/session/...`。
 5. 页面直接显示源数据导入表和错误标红。
 6. 点击“查看修正建议”后出现第二张建议表。
 7. 可以导出修正版。

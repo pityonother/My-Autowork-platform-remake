@@ -1,6 +1,6 @@
 (function () {
   const CONFIG = window.BookingTmsCheckerConfig || {};
-  const DEFAULT_SERVER_BASE = CONFIG.defaultServerBase || 'http://127.0.0.1:8042';
+  const DEFAULT_SERVER_BASE = CONFIG.defaultServerBase || 'https://192.168.10.205';
   const STORAGE_KEY = 'bookingServerBase';
 
   if (document.getElementById('booking-tms-checker-host')) {

@@ -37,6 +37,14 @@ def test_booking_tms_extension_submits_to_extension_upload_route() -> None:
     assert popup_html.index("config.js") < popup_html.index("popup.js")
 
 
+def test_booking_tms_extension_defaults_to_mac_mini_server() -> None:
+    expected_server = "https://192.168.10.205"
+
+    assert expected_server in (EXTENSION_DIR / "config.js").read_text(encoding="utf-8")
+    assert expected_server in (EXTENSION_DIR / "content.js").read_text(encoding="utf-8")
+    assert expected_server in (EXTENSION_DIR / "popup.js").read_text(encoding="utf-8")
+
+
 def test_booking_tms_extension_build_package_injects_server_base(tmp_path) -> None:
     output_dir = tmp_path / "booking_tms_checker_edge"
 

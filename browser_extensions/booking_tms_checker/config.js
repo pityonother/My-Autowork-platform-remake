@@ -1,3 +1,3 @@
 window.BookingTmsCheckerConfig = Object.freeze({
-  defaultServerBase: 'http://127.0.0.1:8042',
+  defaultServerBase: 'https://192.168.10.205',
 });

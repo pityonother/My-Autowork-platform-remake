@@ -1,5 +1,5 @@
 const CONFIG = window.BookingTmsCheckerConfig || {};
-const DEFAULT_SERVER_BASE = CONFIG.defaultServerBase || 'http://127.0.0.1:8042';
+const DEFAULT_SERVER_BASE = CONFIG.defaultServerBase || 'https://192.168.10.205';
 const STORAGE_KEY = 'bookingServerBase';
 
 function normalizeBase(value) {
@@ -18,7 +18,7 @@ chrome.storage.local.get({ [STORAGE_KEY]: DEFAULT_SERVER_BASE }, (items) => {
 saveButton.addEventListener('click', () => {
   const value = normalizeBase(input.value);
   if (!/^https?:\/\/[^/]+/i.test(value)) {
-    status.textContent = '请输入完整地址，例如 http://192.168.1.20:8010';
+    status.textContent = '请输入完整地址，例如 https://192.168.10.205';
     status.style.color = '#c2204a';
     return;
   }
