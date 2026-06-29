@@ -1,6 +1,6 @@
 (function () {
   const CONFIG = window.BookingTmsCheckerConfig || {};
-  const DEFAULT_SERVER_BASE = CONFIG.defaultServerBase || 'https://192.168.10.205';
+  const DEFAULT_SERVER_BASE = CONFIG.defaultServerBase || 'https://192.168.10.4';
   const DEFAULT_SERVER_PORT = CONFIG.defaultServerPort || '8042';
   const STORAGE_KEY = 'bookingServerBase';
 

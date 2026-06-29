@@ -3,8 +3,22 @@ set -euo pipefail
 
 OPENSSL_BIN="${OPENSSL_BIN:-openssl}"
 SSL_DIR="${MY_AUTOWORK_SSL_DIR:-/Users/Shared/company_tools_data/my_autowork/ssl}"
-LAN_IP="${MY_AUTOWORK_LAN_IP:-$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)}"
 HOSTNAME_VALUE="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo mac-mini)"
+
+find_lan_ip() {
+    local iface ip
+    for iface in en0 en1 en2 en3 en4 en5 en6 en7 en8 en9; do
+        ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+        case "$ip" in
+            192.168.*|10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*)
+                printf '%s\n' "$ip"
+                return 0
+                ;;
+        esac
+    done
+}
+
+LAN_IP="${MY_AUTOWORK_LAN_IP:-$(find_lan_ip)}"
 
 if [ -z "$LAN_IP" ]; then
     echo "Could not detect LAN IP. Set MY_AUTOWORK_LAN_IP and retry." >&2

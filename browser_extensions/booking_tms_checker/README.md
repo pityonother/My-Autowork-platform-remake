@@ -14,19 +14,19 @@
 点击浏览器工具栏里的插件图标，填写 Mac mini 内网地址，例如：
 
 ```text
-https://192.168.10.205:8042
+https://192.168.10.4:8042
 ```
 
 本地开发默认值是：
 
 ```text
-https://192.168.10.205:8042
+https://192.168.10.4:8042
 ```
 
 给同事部署时不要手工改源码，使用打包脚本生成带默认服务地址的版本：
 
 ```powershell
-python tools\build_booking_tms_checker_extension.py --server-base https://192.168.10.205
+python tools\build_booking_tms_checker_extension.py --server-base https://192.168.10.4
 ```
 
 详细步骤见 `DEPLOYMENT.md`。

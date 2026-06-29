@@ -30,22 +30,15 @@ find_lan_ip() {
     local ip=""
     local iface=""
 
-    for iface in en0 en1; do
+    for iface in en0 en1 en2 en3 en4 en5 en6 en7 en8 en9; do
         ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
-        if [ -n "$ip" ]; then
-            printf '%s\n' "$ip"
-            return 0
-        fi
+        case "$ip" in
+            192.168.*|10.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*)
+                printf '%s\n' "$ip"
+                return 0
+                ;;
+        esac
     done
-
-    iface="$(route get default 2>/dev/null | awk '/interface:/{print $2; exit}')"
-    if [ -n "$iface" ]; then
-        ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
-        if [ -n "$ip" ]; then
-            printf '%s\n' "$ip"
-            return 0
-        fi
-    fi
 
     printf 'Mac-mini-IP\n'
 }
