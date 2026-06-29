@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import pickle
 import re
+import uuid
+import json
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +12,10 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from app.core.paths import OUTPUT_DIR, RUNTIME_DIR
+from app.modules.booking.body_validation import build_body_validation_preview, build_corrected_body_validation_workbook
 from app.modules.booking.flex_texas import export_flex_texas_source_pdf_tiff
 from app.modules.booking.schemas import BookingPreview
+from app.modules.booking.sil_fuca_delivery import SilFucaDeliveryClient
 from app.modules.booking.service import (
     BookingInputError,
     build_preview_session,
@@ -28,7 +32,11 @@ from app.web.templates import templates
 router = APIRouter()
 LOCK_SUPPLIER_ENV_VAR = "BOOKING_LOCK_SUPPLIER"
 BOOKING_SESSION_DIR = RUNTIME_DIR / "booking_sessions"
+BODY_VALIDATION_EXPORT_DIR = RUNTIME_DIR / "booking_body_validation_exports"
+BODY_VALIDATION_UPLOAD_DIR = RUNTIME_DIR / "booking_body_validation_uploads"
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{6,80}$")
+BODY_VALIDATION_EXPORT_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+\.xlsx$")
+BODY_VALIDATION_UPLOAD_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 EML_MEDIA_TYPE = "message/rfc822"
 
@@ -111,6 +119,83 @@ def attachment_response(path: Path, *, filename: str, media_type: str) -> FileRe
     )
 
 
+def safe_body_validation_export_name(filename: str, export_id: str) -> str:
+    stem = Path(filename).stem
+    safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("._-") or "booking"
+    return f"{safe_stem}_corrected_{export_id}.xlsx"
+
+
+def body_validation_export_path(export_name: str) -> Path:
+    if not BODY_VALIDATION_EXPORT_PATTERN.fullmatch(export_name):
+        raise HTTPException(status_code=404, detail="未找到主体数据修正版文件。")
+    return BODY_VALIDATION_EXPORT_DIR / export_name
+
+
+def build_sil_fuca_delivery_client() -> SilFucaDeliveryClient:
+    return SilFucaDeliveryClient()
+
+
+def write_body_validation_export(
+    workbook_bytes: bytes,
+    *,
+    filename: str,
+    enable_dynamic_checks: bool = False,
+    sil_fuca_delivery_client: SilFucaDeliveryClient | None = None,
+) -> Path:
+    BODY_VALIDATION_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    export_id = uuid.uuid4().hex[:12]
+    output_path = body_validation_export_path(safe_body_validation_export_name(filename, export_id))
+    output_path.write_bytes(
+        build_corrected_body_validation_workbook(
+            workbook_bytes,
+            filename=filename,
+            enable_dynamic_checks=enable_dynamic_checks,
+            sil_fuca_delivery_client=sil_fuca_delivery_client,
+        )
+    )
+    return output_path
+
+
+def body_validation_upload_paths(session_id: str) -> tuple[Path, Path]:
+    if not BODY_VALIDATION_UPLOAD_PATTERN.fullmatch(session_id):
+        raise FileNotFoundError("未找到上传文件缓存。")
+    return BODY_VALIDATION_UPLOAD_DIR / f"{session_id}.xlsx", BODY_VALIDATION_UPLOAD_DIR / f"{session_id}.json"
+
+
+def write_body_validation_upload(content: bytes, *, filename: str) -> str:
+    BODY_VALIDATION_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    session_id = uuid.uuid4().hex
+    workbook_path, meta_path = body_validation_upload_paths(session_id)
+    workbook_path.write_bytes(content)
+    meta_path.write_text(json.dumps({"filename": filename}, ensure_ascii=False), encoding="utf-8")
+    return session_id
+
+
+def read_body_validation_upload(session_id: str) -> tuple[bytes, str]:
+    workbook_path, meta_path = body_validation_upload_paths(session_id)
+    if not workbook_path.is_file() or not meta_path.is_file():
+        raise FileNotFoundError("未找到上传文件缓存，请重新选择 booking form。")
+    metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+    return workbook_path.read_bytes(), str(metadata.get("filename") or workbook_path.name)
+
+
+def body_validation_context(
+    *,
+    preview: Any = None,
+    suggestion_preview: Any = None,
+    export_url: str = "",
+    error: str = "",
+    validation_session_id: str = "",
+) -> dict[str, Any]:
+    return {
+        "preview": preview,
+        "suggestion_preview": suggestion_preview,
+        "export_url": export_url,
+        "error": error,
+        "validation_session_id": validation_session_id,
+    }
+
+
 def booking_page_context(
     *,
     selected_supplier: str = "SIL-FUCA",
@@ -118,16 +203,20 @@ def booking_page_context(
     error: str = "",
     warehouse_mail_ready: bool = False,
 ) -> dict[str, Any]:
-    supplier_options = available_suppliers()
+    eml_pdf_supplier_names = eml_pdf_suppliers()
+    supplier_options = [
+        supplier for supplier in available_suppliers()
+        if supplier not in eml_pdf_supplier_names
+    ]
     locked = locked_supplier()
     if locked:
         selected_supplier = locked
         supplier_options = [locked]
-    elif selected_supplier in eml_pdf_suppliers():
+    elif selected_supplier in eml_pdf_supplier_names:
         supplier_options = [selected_supplier]
     return {
         "suppliers": supplier_options,
-        "eml_pdf_suppliers": eml_pdf_suppliers(),
+        "eml_pdf_suppliers": eml_pdf_supplier_names,
         "selected_supplier": selected_supplier,
         "preview": preview,
         "error": error,
@@ -140,6 +229,91 @@ def booking_page_context(
 async def booking_page(request: Request, supplier: str = "SIL-FUCA") -> HTMLResponse:
     selected_supplier = resolve_selected_supplier(supplier)
     return templates.TemplateResponse(request, "booking.html", booking_page_context(selected_supplier=selected_supplier))
+
+
+@router.get("/modules/booking/body-validation", response_class=HTMLResponse)
+async def booking_body_validation_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "booking_body_validation.html",
+        body_validation_context(),
+    )
+
+
+@router.post("/modules/booking/body-validation", response_class=HTMLResponse)
+async def preview_booking_body_validation(
+    request: Request,
+    booking_file: UploadFile | None = File(None),
+    apply_fixes: str = Form("0"),
+    validation_session_id: str = Form(""),
+) -> HTMLResponse:
+    session_id = validation_session_id.strip()
+    if not booking_file and not session_id:
+        return templates.TemplateResponse(
+            request,
+            "booking_body_validation.html",
+            body_validation_context(error="请上传 booking form xlsx 文件。"),
+            status_code=400,
+        )
+    try:
+        if booking_file and booking_file.filename:
+            filename = booking_file.filename
+            if not filename.lower().endswith(".xlsx"):
+                return templates.TemplateResponse(
+                    request,
+                    "booking_body_validation.html",
+                    body_validation_context(error="当前筛查页先支持 .xlsx booking form。"),
+                    status_code=400,
+                )
+            content = await booking_file.read()
+            session_id = write_body_validation_upload(content, filename=filename)
+        else:
+            content, filename = read_body_validation_upload(session_id)
+
+        use_fixes = apply_fixes == "1"
+        sil_fuca_delivery_client = build_sil_fuca_delivery_client() if use_fixes else None
+        preview = build_body_validation_preview(
+            content,
+            filename=filename,
+            apply_fixes=use_fixes,
+            enable_dynamic_checks=use_fixes,
+            sil_fuca_delivery_client=sil_fuca_delivery_client,
+        )
+        suggestion_preview = preview if use_fixes else None
+        export_url = ""
+        if use_fixes:
+            export_path = write_body_validation_export(
+                content,
+                filename=filename,
+                enable_dynamic_checks=True,
+                sil_fuca_delivery_client=sil_fuca_delivery_client,
+            )
+            export_url = f"/modules/booking/body-validation/export/{export_path.name}"
+    except Exception as exc:  # noqa: BLE001
+        return templates.TemplateResponse(
+            request,
+            "booking_body_validation.html",
+            body_validation_context(error=str(exc)),
+            status_code=400,
+        )
+    return templates.TemplateResponse(
+        request,
+        "booking_body_validation.html",
+        body_validation_context(
+            preview=preview,
+            suggestion_preview=suggestion_preview,
+            export_url=export_url,
+            validation_session_id=session_id,
+        ),
+    )
+
+
+@router.get("/modules/booking/body-validation/export/{export_name}")
+async def download_booking_body_validation_export(export_name: str) -> FileResponse:
+    output_path = body_validation_export_path(export_name)
+    if not output_path.is_file():
+        raise HTTPException(status_code=404, detail="未找到主体数据修正版文件。")
+    return attachment_response(output_path, filename=output_path.name, media_type=XLSX_MEDIA_TYPE)
 
 
 @router.post("/modules/booking/preview", response_class=HTMLResponse)

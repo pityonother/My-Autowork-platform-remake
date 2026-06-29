@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-06-26T11:44:29.677Z",
+  "sourceBase": "https://colors.xiaoxiaodong.ai",
+  "sourceUrls": {
+    "images": "https://colors.xiaoxiaodong.ai/assets/data/images.js",
+    "harmonies": "https://colors.xiaoxiaodong.ai/assets/data/harmonies.js",
+    "harmonyUsage": "https://colors.xiaoxiaodong.ai/assets/data/harmony-usage.js"
+  },
+  "sourceProject": {
+    "count": 742,
+    "totalBytes": 1046035317,
+    "archiveName": "zhongguo-traditional-colors-images.zip"
+  },
+  "colorCount": 742,
+  "licenseNote": "Source project is published by nevertoday/zhongguo-traditional-colors and described as MIT licensed on the website."
+}

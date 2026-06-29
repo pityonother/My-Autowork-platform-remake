@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking Form 主体数据筛查</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/modules/booking/styles.css">
+</head>
+<body class="booking-body-validation">
+{% set field_labels = {
+    'Customer_Part_No': 'SKU',
+    'PO_No': 'PO#',
+    'madeDate': '生产日期',
+    'per_box': '每箱标准数',
+    'Pkgs': '箱数',
+    'Pallet': '板数',
+    'Quantity': '数量',
+    'case_number': 'Case number',
+    'Invoice_No': '发票号',
+    'Made_In': '产地',
+    'packing': '送货单号',
+    'brand': '品牌',
+    'LEDBinCode': 'LEDBinCode',
+    'min_package': '最小包装数',
+    'Remark': '备注',
+    'IPPC': 'IPPC'
+} %}
+{% set table_fields = [
+    ('Line', 'Line'),
+    ('case_number', 'Case number'),
+    ('Customer_Part_No', 'SKU'),
+    ('PO_No', 'PO#'),
+    ('Part_Description', 'Part Description'),
+    ('Quantity', '数量'),
+    ('unit', 'Unit'),
+    ('Pkgs', '箱数'),
+    ('FJZ', 'N.Wt'),
+    ('G_Wt', 'G.Wt'),
+    ('CBM', 'CBM'),
+    ('Pallet', '板数'),
+    ('Invoice_No', '发票号'),
+    ('madeDate', '生产日期'),
+    ('Invoice_Date', '发票日期'),
+    ('Made_In', '产地'),
+    ('Batch_No', 'Batch No.'),
+    ('ASN', 'ASN'),
+    ('gyskbh', '供应商卡号'),
+    ('packing', '送货单号'),
+    ('Tray_Type', 'Tray Type'),
+    ('brand', '品牌'),
+    ('LEDBinCode', 'LEDBinCode'),
+    ('min_package', '最小包装数'),
+    ('per_box', '每箱标准数'),
+    ('IPPC', 'IPPC'),
+    ('Remark', '备注')
+] %}
+{% set correction_preview = suggestion_preview %}
+
+{% macro upload_panel(compact=false) %}
+<section class="screening-table-card screening-upload-inline-card{% if compact %} is-compact{% endif %}">
+    <div class="screening-upload-inline-head">
+        <div>
+            <h2>上传 booking form</h2>
+            <p>选择文件后自动导入源数据并按当前规则标错；原始 Excel 不会被覆盖。</p>
+        </div>
+    </div>
+    {% if error %}
+    <div class="booking-alert is-error" role="alert">
+        <span class="booking-alert-label">出错</span>
+        <span class="booking-alert-message">{{ error }}</span>
+    </div>
+    {% endif %}
+    <form class="booking-form screening-upload-form" method="post" action="/modules/booking/body-validation" enctype="multipart/form-data">
+        <input type="hidden" name="apply_fixes" value="0" data-apply-mode>
+        <label class="booking-upload is-primary booking-screening-upload">
+            <input type="file" name="booking_file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required data-auto-submit-screening>
+            <span class="booking-upload-icon" aria-hidden="true">+</span>
+            <span class="booking-upload-body">
+                <span class="booking-upload-title">选择供应商填好的 booking form</span>
+                <span class="booking-upload-sub">选择后自动进入源数据筛查表。</span>
+                <span class="booking-upload-file" data-upload-file></span>
+            </span>
+            <span class="booking-upload-chip">xlsx</span>
+        </label>
+        <div class="booking-form-footer">
+            <span class="hint">如浏览器拦截自动提交，可手动点击“只筛查”。</span>
+            <div class="booking-button-row">
+                <button class="secondary-btn" type="submit">只筛查</button>
+            </div>
+        </div>
+    </form>
+</section>
+{% endmacro %}
+
+{% macro field_view_toolbar() %}
+<div class="screening-table-toolbar">
+    <label>
+        <span>字段视图</span>
+        <select data-field-view>
+            <option value="all" selected>全部字段</option>
+            <option value="core">核心字段</option>
+            <option value="basic">基础信息</option>
+            <option value="quantity">数量重量</option>
+            <option value="document">单据补充</option>
+            <option value="issues">只看异常</option>
+        </select>
+    </label>
+</div>
+{% endmacro %}
+
+<main class="screening-app-shell {% if not preview %}screening-entry-page{% endif %}">
+    <header class="screening-appbar">
+        <div class="screening-brand">
+            <span class="screening-logo" aria-hidden="true">B</span>
+            <div>
+                <h1>Booking Form 主体数据筛查</h1>
+                <p>{% if preview %}{{ preview.filename }}{% else %}上传 booking form 后进入筛查工作台{% endif %}</p>
+            </div>
+        </div>
+        <div class="screening-app-actions">
+            {% if preview %}
+            <span class="screening-count-pill">{{ preview.display_issue_count }} 个问题</span>
+            {% if export_url %}
+            <a class="screening-primary-action" href="{{ export_url }}" download>导出修正版</a>
+            {% else %}
+            <button class="screening-primary-action" type="button" disabled>导出修正版</button>
+            {% endif %}
+            {% else %}
+            <a class="screening-secondary-action" href="/modules/booking">返回 Booking</a>
+            {% endif %}
+        </div>
+    </header>
+    {% if preview and not preview.applied_fixes and validation_session_id %}
+    <form id="screening-suggestion-form" method="post" action="/modules/booking/body-validation">
+        <input type="hidden" name="apply_fixes" value="1">
+        <input type="hidden" name="validation_session_id" value="{{ validation_session_id }}">
+    </form>
+    {% endif %}
+
+    <div class="screening-workspace">
+        <aside class="screening-sidebar">
+            <div class="screening-sidebar-head">
+                <h2>错误队列</h2>
+                <p>{% if preview %}当前文件 · 按严重程度排序{% else %}选择文件后自动生成{% endif %}</p>
+            </div>
+
+            <div class="screening-issue-list">
+                {% if preview %}
+                    {% for issue in preview.display_issues %}
+                    {% set label = field_labels.get(issue.field_code, issue.field_label) %}
+                    <a class="screening-issue-card {% if loop.first %}is-active{% endif %}"
+                       href="#row-{{ issue.row_number or 'summary' }}-{{ issue.field_code }}">
+                        <div class="screening-issue-card-top">
+                            <span class="screening-row-pill {% if issue.correction_kind in ['per_box_expression', 'date_normalize'] %}is-warning{% endif %}">
+                                {{ 'R' ~ issue.row_number if issue.row_number else '汇总' }}
+                            </span>
+                            <strong>{{ label }}</strong>
+                            <span>定位</span>
+                        </div>
+                        <p>{{ issue.message }}</p>
+                    </a>
+                    {% else %}
+                    <div class="screening-empty-card">
+                        <strong>没有发现静态规则问题</strong>
+                        <p>当前文件通过已启用的主体数据规则。</p>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <div class="screening-empty-card">
+                    <strong>等待上传</strong>
+                    <p>上传后这里会显示当前文件的错误队列，并可定位到表格中的异常格。</p>
+                </div>
+                <div class="screening-empty-card">
+                    <strong>源数据表</strong>
+                    <p>选择 booking form 后会自动展开，不需要跳到另一个视觉页面。</p>
+                </div>
+                <div class="screening-empty-card">
+                    <strong>修正建议</strong>
+                    <p>点击“查看修正建议”后才展开第二张表。</p>
+                </div>
+                {% endif %}
+            </div>
+
+            <button class="screening-sidebar-toggle" {% if preview and not preview.applied_fixes and validation_session_id %}type="submit" form="screening-suggestion-form"{% else %}type="button"{% endif %} {% if not preview or preview.applied_fixes %}disabled{% endif %}>
+                <span>修正建议</span>
+                <span class="screening-switch {% if preview and preview.applied_fixes %}is-on{% endif %}" aria-hidden="true"></span>
+            </button>
+        </aside>
+
+        <section class="screening-main">
+            {{ upload_panel(compact=preview) }}
+            {% if not preview %}
+                <section class="screening-table-card screening-placeholder-table">
+                    <h2>源数据导入表</h2>
+                    {{ field_view_toolbar() }}
+                    <div class="screening-table-wrap">
+                        <table class="screening-data-table" data-field-table>
+                            <thead>
+                            <tr>
+                                <th>行</th>
+                                {% for code, label in table_fields %}
+                                <th data-field-code="{{ code }}">{{ label }}</th>
+                                {% endfor %}
+                                <th>状态</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <tr>
+                                <td colspan="{{ table_fields|length + 2 }}">
+                                    <span class="screening-placeholder-cell">选择 booking form 后，源数据会在这里展开并标红异常字段。</span>
+                                </td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            {% else %}
+                {% if preview.warnings %}
+                <div class="screening-warning-strip">
+                    {% for item in preview.warnings %}
+                    <span>{{ item }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <section class="screening-table-card">
+                    <h2>源数据导入表</h2>
+                    {{ field_view_toolbar() }}
+                    <div class="screening-table-wrap">
+                        <table class="screening-data-table" data-field-table>
+                            <thead>
+                            <tr>
+                                <th>行</th>
+                                {% for code, label in table_fields %}
+                                <th data-field-code="{{ code }}">{{ label }}</th>
+                                {% endfor %}
+                                <th>状态</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for row in preview.rows %}
+                            {% set source_fields = row.source_issue_fields if preview.applied_fixes else row.issue_fields %}
+                            <tr>
+                                <td>{{ row.excel_row }}</td>
+                                {% for code, label in table_fields %}
+                                {% set source_tip = row.source_issue_text(code) if preview.applied_fixes else row.issue_text(code) %}
+                                {% set correction_kind = row.correction_kind_for(code) %}
+                                {% set options = row.correction_options_for(code) %}
+                                <td id="row-{{ row.excel_row }}-{{ code }}"
+                                    data-field-code="{{ code }}"
+                                    class="{% if source_tip and correction_kind == 'per_box_expression' %}screening-cell-warning{% elif source_tip %}screening-cell-error{% endif %}"
+                                    {% if source_tip %}title="{{ source_tip }}"{% endif %}>
+                                    <span>{{ row.source_values.get(code, row.values.get(code, '')) }}</span>
+                                    {% if source_tip and correction_kind == 'date_choice' %}
+                                    <span class="screening-hover-note">
+                                        <strong>生产日期出现多个值</strong>
+                                        <small>识别到 {{ options|join('、') }}；可选择一个或手工输入。</small>
+                                    </span>
+                                    {% endif %}
+                                </td>
+                                {% endfor %}
+                                <td>
+                                    {% if source_fields %}
+                                        {% if 'madeDate' in source_fields and row.correction_kind_for('madeDate') == 'date_choice' %}
+                                        <span class="screening-status is-error">错误</span>
+                                        {% elif row.fixed_fields %}
+                                        <span class="screening-status is-warning">需修正</span>
+                                        {% else %}
+                                        <span class="screening-status is-error">错误</span>
+                                        {% endif %}
+                                    {% else %}
+                                    <span class="screening-status is-ok">通过</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                {% if correction_preview %}
+                {% set manual = namespace(count=0) %}
+                {% for issue in correction_preview.display_issues %}
+                    {% if issue.correction_kind == 'date_choice' %}
+                        {% set manual.count = manual.count + 1 %}
+                    {% endif %}
+                {% endfor %}
+                <section class="screening-table-card screening-suggestion-region {% if not preview.applied_fixes %}is-hidden{% endif %}" data-suggestion-region>
+                    <h2>修正建议表</h2>
+                    {{ field_view_toolbar() }}
+                    <div class="screening-table-wrap">
+                        <table class="screening-data-table screening-correction-table" data-field-table>
+                            <thead>
+                            <tr>
+                                <th>行</th>
+                                {% for code, label in table_fields %}
+                                <th data-field-code="{{ code }}">{{ label }}</th>
+                                {% endfor %}
+                                <th>状态</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for row in correction_preview.rows %}
+                            <tr>
+                                <td>{{ row.excel_row }}</td>
+                                {% for code, label in table_fields %}
+                                {% set fixed = code in row.fixed_fields %}
+                                {% set correction_kind = row.correction_kind_for(code) %}
+                                {% set correction_options = row.correction_options_for(code) %}
+                                <td data-field-code="{{ code }}" class="{% if fixed %}screening-cell-fixed{% elif code in row.issue_fields %}screening-cell-error{% endif %}">
+                                    {% if correction_kind == 'date_choice' %}
+                                    <span class="screening-fixed-value">{{ row.values.get(code, '') }}</span>
+                                    <span class="screening-edit-popover" data-date-correction>
+                                        <strong>人工编辑</strong>
+                                        <span class="screening-choice-title">算法识别值</span>
+                                        <span class="screening-choice-list">
+                                            {% for option in correction_options %}
+                                            <label>
+                                                <input type="radio" name="date-{{ row.excel_row }}-{{ code }}" value="{{ option }}" data-date-choice {% if option == row.values.get(code, '') %}checked{% endif %}>
+                                                <span>{{ option }}</span>
+                                            </label>
+                                            {% endfor %}
+                                        </span>
+                                        <label class="screening-manual-field">
+                                            <span>手填覆盖</span>
+                                            <input type="text" value="" placeholder="留空则使用选中的算法值" data-date-manual aria-label="手填生产日期">
+                                        </label>
+                                        <button type="button" data-apply-manual>应用</button>
+                                    </span>
+                                    {% elif fixed %}
+                                    <span class="screening-fixed-value" contenteditable="true">{{ row.values.get(code, '') }}</span>
+                                    {% else %}
+                                    <span>{{ row.values.get(code, '') }}</span>
+                                    {% endif %}
+                                </td>
+                                {% endfor %}
+                                <td>
+                                    {% if row.fixed_fields %}
+                                    <span class="screening-status is-suggested">建议</span>
+                                    {% elif row.issue_fields %}
+                                    <span class="screening-status is-error">错误</span>
+                                    {% else %}
+                                    <span class="screening-status is-original">原值</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <footer class="screening-bottom-bar">
+                    <p>当前修正建议：<strong>{{ correction_preview.fix_count }}</strong> 个字段可自动补齐，<strong>{{ manual.count }}</strong> 个字段需要人工确认</p>
+                    <div>
+                        <button class="screening-secondary-action" type="button">只导出报告</button>
+                        {% if export_url %}
+                        <a class="screening-primary-action" href="{{ export_url }}" download>导出修正版</a>
+                        {% else %}
+                        <button class="screening-primary-action" type="button" disabled>导出修正版</button>
+                        {% endif %}
+                    </div>
+                </footer>
+                {% else %}
+                <footer class="screening-bottom-bar">
+                    <p>当前文件：<strong>{{ preview.display_issue_count }}</strong> 个问题，修正建议将在点击后生成。</p>
+                    <div>
+                        <button class="screening-primary-action" type="submit" form="screening-suggestion-form" {% if not validation_session_id %}disabled{% endif %}>查看修正建议</button>
+                    </div>
+                </footer>
+                {% endif %}
+            {% endif %}
+        </section>
+    </div>
+    <p class="screening-step-caption">3. 错误队列 + 源表 + 修正建议表</p>
+</main>
+
+<script>
+(function () {
+    var fileInputs = document.querySelectorAll('.booking-upload input[type="file"]');
+    for (var i = 0; i < fileInputs.length; i++) {
+        (function (input) {
+            input.addEventListener('change', function () {
+                var target = input.closest('.booking-upload');
+                if (!target) return;
+                var fileCell = target.querySelector('[data-upload-file]');
+                if (input.files && input.files.length) {
+                    target.classList.add('has-files');
+                    if (fileCell) fileCell.textContent = '已选：' + input.files[0].name;
+                    if (input.hasAttribute('data-auto-submit-screening')) {
+                        var form = input.closest('form');
+                        if (target) target.classList.add('is-uploading');
+                        if (form && form.requestSubmit) {
+                            form.requestSubmit();
+                        } else if (form) {
+                            form.submit();
+                        }
+                    }
+                } else {
+                    target.classList.remove('has-files');
+                    if (fileCell) fileCell.textContent = '';
+                }
+            });
+        })(fileInputs[i]);
+    }
+
+    function selectedAlgorithmValue(control) {
+        var checked = control.querySelector('[data-date-choice]:checked');
+        return checked ? checked.value : '';
+    }
+
+    var dateControls = document.querySelectorAll('[data-date-correction]');
+    for (var j = 0; j < dateControls.length; j++) {
+        (function (control) {
+            var input = control.querySelector('[data-date-manual]');
+            var button = control.querySelector('[data-apply-manual]');
+            var cell = control.closest('td');
+            function applyValue() {
+                if (!cell) return;
+                var target = cell.querySelector('.screening-fixed-value');
+                var manualValue = input ? input.value.trim() : '';
+                if (target) target.textContent = manualValue || selectedAlgorithmValue(control);
+            }
+            control.addEventListener('change', function (event) {
+                if (event.target && event.target.matches('[data-date-choice]') && input && !input.value.trim()) {
+                    applyValue();
+                }
+            });
+            if (button) button.addEventListener('click', applyValue);
+        })(dateControls[j]);
+    }
+
+    var fieldGroups = {
+        core: ['Customer_Part_No', 'PO_No', 'madeDate', 'per_box', 'Pkgs', 'Pallet'],
+        basic: ['Line', 'case_number', 'Customer_Part_No', 'PO_No', 'Part_Description', 'Quantity', 'unit', 'Made_In', 'brand'],
+        quantity: ['Quantity', 'Pkgs', 'FJZ', 'G_Wt', 'CBM', 'Pallet', 'min_package', 'per_box'],
+        document: ['Invoice_No', 'madeDate', 'Invoice_Date', 'Batch_No', 'ASN', 'gyskbh', 'packing', 'LEDBinCode', 'Remark']
+    };
+
+    function issueFieldSet(table) {
+        var fields = {};
+        var cells = table.querySelectorAll('td[data-field-code].screening-cell-error, td[data-field-code].screening-cell-warning, td[data-field-code].screening-cell-fixed');
+        for (var i = 0; i < cells.length; i++) {
+            fields[cells[i].getAttribute('data-field-code')] = true;
+        }
+        return fields;
+    }
+
+    function applyFieldView(select) {
+        var card = select.closest('.screening-table-card');
+        if (!card) return;
+        var table = card.querySelector('[data-field-table]');
+        if (!table) return;
+        var mode = select.value || 'all';
+        var visible = null;
+        if (mode === 'issues') {
+            visible = issueFieldSet(table);
+        } else if (fieldGroups[mode]) {
+            visible = {};
+            for (var g = 0; g < fieldGroups[mode].length; g++) visible[fieldGroups[mode][g]] = true;
+        }
+        var cells = table.querySelectorAll('[data-field-code]');
+        for (var c = 0; c < cells.length; c++) {
+            var code = cells[c].getAttribute('data-field-code');
+            cells[c].hidden = !!visible && !visible[code];
+        }
+    }
+
+    var fieldViews = document.querySelectorAll('[data-field-view]');
+    for (var k = 0; k < fieldViews.length; k++) {
+        (function (select) {
+            select.addEventListener('change', function () {
+                applyFieldView(select);
+            });
+            applyFieldView(select);
+        })(fieldViews[k]);
+    }
+})();
+</script>
+</body>
+</html>

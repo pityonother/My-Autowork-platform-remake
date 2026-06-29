@@ -197,6 +197,7 @@ def test_general_booking_page_still_exposes_sil_supplier() -> None:
 
     assert response.status_code == 200
     assert 'value="SIL-FUCA"' in response.text
+    assert 'value="FLEX-TEXAS"' not in response.text
 
 
 def test_booking_lock_supplier_env_hides_sil(monkeypatch) -> None:

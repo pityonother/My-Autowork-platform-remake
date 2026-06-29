@@ -1,0 +1,99 @@
+{
+  "name": "booking-screening-traditional",
+  "description": "A restrained traditional-color token set for booking form screening UI.",
+  "tokens": {
+    "surface": {
+      "colorId": "733",
+      "name": "荼蘼白",
+      "hex": "#F8F4F0"
+    },
+    "surfaceWarm": {
+      "colorId": "684",
+      "name": "茉莉白",
+      "hex": "#F8F4E9"
+    },
+    "surfaceSoft": {
+      "colorId": "682",
+      "name": "奶油白",
+      "hex": "#FFF8E7"
+    },
+    "text": {
+      "colorId": "693",
+      "name": "松烟墨",
+      "hex": "#3B3A3E"
+    },
+    "textStrong": {
+      "colorId": "736",
+      "name": "墨黑",
+      "hex": "#0F1A20"
+    },
+    "border": {
+      "colorId": "691",
+      "name": "云峰灰",
+      "hex": "#C1C8D6"
+    },
+    "mutedText": {
+      "colorId": "690",
+      "name": "高级灰",
+      "hex": "#9C9CA4"
+    },
+    "primary": {
+      "colorId": "741",
+      "name": "青黛",
+      "hex": "#1A3A5F"
+    },
+    "secondary": {
+      "colorId": "704",
+      "name": "黛色",
+      "hex": "#3B4F5C"
+    },
+    "info": {
+      "colorId": "666",
+      "name": "雾霾蓝",
+      "hex": "#7BA0A5"
+    },
+    "successSoft": {
+      "colorId": "683",
+      "name": "浅豆绿",
+      "hex": "#B2C8A0"
+    },
+    "success": {
+      "colorId": "740",
+      "name": "翠青",
+      "hex": "#2AAE6F"
+    },
+    "warning": {
+      "colorId": "735",
+      "name": "鎏金",
+      "hex": "#D4AF37"
+    },
+    "dangerSoft": {
+      "colorId": "703",
+      "name": "茜裙",
+      "hex": "#C75A6B"
+    },
+    "danger": {
+      "colorId": "720",
+      "name": "胭脂泪",
+      "hex": "#9D4E5C"
+    },
+    "tableStripe": {
+      "colorId": "717",
+      "name": "梨花白",
+      "hex": "#F8F5F0"
+    },
+    "correctionBase": {
+      "colorId": "731",
+      "name": "藕丝秋",
+      "hex": "#D9C6B3"
+    }
+  },
+  "usage": {
+    "surface": "App background and large panels.",
+    "primary": "Main actions, active navigation, selected state.",
+    "danger": "Invalid source cells and blocking validation issues.",
+    "warning": "Parseable but uncertain source cells.",
+    "success": "Correction suggestions and applied fixes.",
+    "info": "Tooltips, secondary emphasis, neutral status."
+  }
+}

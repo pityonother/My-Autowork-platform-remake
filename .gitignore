@@ -14,6 +14,7 @@ shared_data/
 run_data/
 uploads/
 outputs/
+output/
 logs/
 backups/
 backup/

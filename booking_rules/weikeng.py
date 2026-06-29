@@ -46,6 +46,7 @@ CONSTANTS = {
 }
 
 QUANTITY_COPY_COLUMNS = []
+ZERO_AFTER_FIRST_COLUMNS = ["板数"]
 OPTIONAL_SOURCE_COLUMNS = {"最小包装数量", "每箱数量"}
 FALLBACK_TO_QUANTITY_COLUMNS = ["最小包装数", "每箱标准数"]
 TEXT_TARGET_COLUMNS = {"订单号", "启益料号", "发票号", "生产日期", "批次"}

@@ -53,6 +53,46 @@ def test_weikeng_total_box_count_is_written_only_on_first_row() -> None:
     assert extras == [{"Total Box Count": 12}, {"Total Box Count": 0}]
 
 
+def test_weikeng_pallet_count_is_zero_after_first_row(tmp_path) -> None:
+    source_path = tmp_path / "weikeng_packing.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "packing"
+    ws.append(
+        [
+            "採購商訂單號",
+            "訂單項次",
+            "產地",
+            "品牌",
+            "供應商發票號",
+            "箱號",
+            "數量",
+            "數量單位",
+            "毛重",
+            "淨重",
+            "材積",
+            "DATECODE",
+            "採購商物料號",
+            "LOTNO",
+            "IC屬性",
+            "最小包装数量",
+            "每箱数量",
+            "總箱數",
+        ]
+    )
+    ws.append(["C33C-26010025", "1", "US", "TI", "INV-1", "1", 100, "PCS", 1.2, 1.0, "10X10X10", "2601", "PART-001", "LOT1", "IC", 50, 100, ""])
+    ws.append(["C33C-26010025", "2", "US", "TI", "INV-1", "2", 200, "PCS", 2.2, 2.0, "10X10X10", "2601", "PART-002", "LOT2", "IC", 50, 100, ""])
+    ws.append(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", 2])
+    wb.save(source_path)
+
+    preview = build_booking_preview(session_id="weikeng-pallet-test", supplier="SIL-WEIKENG", source_path=source_path)
+
+    assert preview.can_generate
+    assert "板数" in preview.columns
+    assert preview.rows[0]["板数"] == ""
+    assert preview.rows[1]["板数"] == 0
+
+
 def test_sil_warehouse_mail_helpers_replace_mawb_and_warehouse_no(tmp_path) -> None:
     warehouse_file = tmp_path / "SIL26040490 入仓纸.pdf"
 
