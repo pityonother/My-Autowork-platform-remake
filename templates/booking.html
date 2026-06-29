@@ -11,12 +11,12 @@
 <main class="shell wide">
     <section class="topbar booking-topbar">
         <div>
-            <p class="eyebrow">Booking Form · 自动填表</p>
-            <h1>Booking 生成器</h1>
-            <p class="lead">按供应商规则读取客户邮件或源表，输出填好的 booking form。</p>
+            <p class="eyebrow">Booking Form · 自动填表 + 入仓前质检</p>
+            <h1>Booking 工作台</h1>
+            <p class="lead">自动生成 booking form，也可以直接筛查供应商填好的 booking form。</p>
         </div>
         <div class="actions">
-            <a class="secondary-btn" href="/modules/booking/body-validation">主体数据筛查</a>
+            <a class="secondary-btn" href="/modules/booking/body-validation">Booking Form 质检修正</a>
             <a class="secondary-btn" href="/">返回首页</a>
         </div>
     </section>
@@ -28,7 +28,26 @@
     </div>
     {% endif %}
 
-    <section class="panel booking-panel">
+    <section class="booking-entry-grid" aria-label="Booking 工作台入口">
+        <article class="booking-entry-card is-generator">
+            <div>
+                <span class="booking-entry-kicker">自动生成</span>
+                <h2>根据客户资料生成 booking form</h2>
+                <p>适合 SIL、WEIKENG 等需要我们自己填表的供应商；生成后可以继续进入质检修正。</p>
+            </div>
+            <a class="secondary-btn" href="#booking-generator">开始生成</a>
+        </article>
+        <article class="booking-entry-card is-validation">
+            <div>
+                <span class="booking-entry-kicker">通用质检</span>
+                <h2>Booking Form 质检修正</h2>
+                <p>适合供应商已经填好的 booking form；上传后标红异常、查看修正建议并导出修正版。</p>
+            </div>
+            <a class="primary-btn" href="/modules/booking/body-validation">打开质检修正</a>
+        </article>
+    </section>
+
+    <section class="panel booking-panel" id="booking-generator">
         <header class="booking-section-head">
             <div>
                 <h2>① 上传与预览</h2>
@@ -119,7 +138,10 @@
                 </p>
             </div>
             {% if preview.can_generate %}
-            <a class="primary-btn booking-generate-link" href="/modules/booking/generate/{{ preview.session_id }}" download>生成并下载 .xlsx</a>
+            <div class="booking-preview-actions">
+                <a class="primary-btn booking-generate-link" href="/modules/booking/generate/{{ preview.session_id }}" download>生成并下载 .xlsx</a>
+                <a class="secondary-btn" href="/modules/booking/body-validation/from-preview/{{ preview.session_id }}">进入质检修正</a>
+            </div>
             {% elif preview.validation_error_count %}
             <span class="booking-generate-blocked">存在错误级校验，先核对后再生成</span>
             {% endif %}

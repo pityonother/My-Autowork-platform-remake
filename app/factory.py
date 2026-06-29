@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from typing import Any
 
 from fastapi import APIRouter, FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -32,12 +33,13 @@ def create_app(
     db_initializers: Iterable[DatabaseInitializer] = (),
     routers: Iterable[APIRouter] = (),
     init_runtime: bool = True,
+    lifespan: Any = None,
 ) -> FastAPI:
     if init_runtime:
         ensure_runtime_dirs()
         init_databases(db_initializers)
 
-    app = FastAPI(title=title)
+    app = FastAPI(title=title, lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     for router in routers:
         app.include_router(router)

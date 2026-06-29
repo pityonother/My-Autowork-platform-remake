@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Booking Form 质检助手",
+  "description": "在公司 TMS 页面右下角显示 booking form 质检上传入口。",
+  "version": "0.1.0",
+  "permissions": [
+    "storage"
+  ],
+  "action": {
+    "default_title": "Booking Form 质检助手",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://www.clztoud.com:8008/SupplierInquiry/*",
+        "http://www.clztoud.com:8008/SupplierInquiry/index.html*",
+        "https://smooth.clztoud.com/Home/*"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "js": [
+        "config.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

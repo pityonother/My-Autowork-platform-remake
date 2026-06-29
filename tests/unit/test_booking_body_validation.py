@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import re
 from datetime import date, datetime
 from decimal import Decimal
@@ -13,7 +15,13 @@ from app.modules.booking.body_validation import (
     build_body_validation_preview,
     build_corrected_body_validation_workbook,
 )
-from app.modules.booking.sil_fuca_delivery import SilFucaDeliveryRecord, SilFucaDeliveryResponse
+from app.modules.booking import sil_fuca_delivery as delivery_module
+from app.modules.booking.sil_fuca_delivery import (
+    SilFucaDeliveryClient,
+    SilFucaDeliveryRecord,
+    SilFucaDeliveryResponse,
+)
+from app.modules.booking.schemas import BookingPreview
 from app.modules.booking import routes as booking_routes
 from booking_web_app import app as booking_app
 
@@ -156,6 +164,37 @@ class _FakeSilFucaDeliveryClient:
     def get_all_delivery_list(self):
         self.all_call_count += 1
         return self.all_records
+
+
+class _CountingSilFucaDeliveryClient(SilFucaDeliveryClient):
+    def __init__(self, *, raw_all_payload=None, error: str = "") -> None:
+        super().__init__(list_all_url="http://local.test/all")
+        self.raw_all_payload = raw_all_payload if raw_all_payload is not None else []
+        self.error = error
+        self.all_call_count = 0
+
+    def _get_json(self, url: str):  # noqa: ANN001
+        self.all_call_count += 1
+        if self.error:
+            raise RuntimeError(self.error)
+        return self.raw_all_payload
+
+
+def _reset_shared_delivery_cache() -> None:
+    delivery_module._ALL_DELIVERY_LIST_CACHE.records = ()
+    delivery_module._ALL_DELIVERY_LIST_CACHE.updated_at = None
+    delivery_module._ALL_DELIVERY_LIST_CACHE.error = ""
+
+
+def _delivery_api_payload(*, po: str = "T33U-26040025-0002", pn: str = "1010300202002T01") -> dict[str, object]:
+    return {
+        "po": po,
+        "product_code": pn,
+        "delivery_quantity": "20,000",
+        "delivery_date": "2026-07-03T00:00:00",
+        "delivery_list_no": "2026062700003-0000000023",
+        "allocation_status": "未使用",
+    }
 
 
 def test_booking_body_validation_flags_static_body_issues() -> None:
@@ -442,6 +481,107 @@ def test_sil_fuca_delivery_record_parses_api_date() -> None:
     assert record.delivery_date == date(2026, 7, 3)
 
 
+def test_sil_fuca_all_delivery_list_cache_persists_between_clients(monkeypatch, tmp_path) -> None:
+    cache_file = tmp_path / "sil_fuca_all_delivery_list.json"
+    monkeypatch.setenv("SIL_FUCA_DELIVERY_LIST_CACHE_FILE", str(cache_file))
+    _reset_shared_delivery_cache()
+    first_client = _CountingSilFucaDeliveryClient(raw_all_payload=[_delivery_api_payload()])
+
+    first_records = first_client.get_all_delivery_list()
+
+    assert first_client.all_call_count == 1
+    assert cache_file.is_file()
+    assert first_records[0].po == "T33U-26040025-0002"
+
+    _reset_shared_delivery_cache()
+    second_client = _CountingSilFucaDeliveryClient(error="should not call api")
+    second_records = second_client.get_all_delivery_list()
+
+    assert second_client.all_call_count == 0
+    assert second_records[0].delivery_quantity == Decimal("20000")
+
+
+def test_sil_fuca_all_delivery_list_uses_old_cache_when_refresh_lock_active(monkeypatch, tmp_path) -> None:
+    cache_file = tmp_path / "sil_fuca_all_delivery_list.json"
+    monkeypatch.setenv("SIL_FUCA_DELIVERY_LIST_CACHE_FILE", str(cache_file))
+    _reset_shared_delivery_cache()
+    seed_client = _CountingSilFucaDeliveryClient(raw_all_payload=[_delivery_api_payload()])
+    seed_client.get_all_delivery_list()
+    _reset_shared_delivery_cache()
+    lock_path = cache_file.with_suffix(cache_file.suffix + ".lock")
+    lock_path.write_text("refreshing", encoding="utf-8")
+    refresh_client = _CountingSilFucaDeliveryClient(error="should not call api while locked")
+
+    records = refresh_client.get_all_delivery_list(force_refresh=True)
+    status = delivery_module.get_all_delivery_list_cache_status()
+
+    assert refresh_client.all_call_count == 0
+    assert records[0].po == "T33U-26040025-0002"
+    assert status.state == "refreshing"
+    assert status.record_count == 1
+
+
+def test_sil_fuca_all_delivery_list_refresh_failure_preserves_persistent_cache(monkeypatch, tmp_path) -> None:
+    cache_file = tmp_path / "sil_fuca_all_delivery_list.json"
+    monkeypatch.setenv("SIL_FUCA_DELIVERY_LIST_CACHE_FILE", str(cache_file))
+    _reset_shared_delivery_cache()
+    seed_client = _CountingSilFucaDeliveryClient(raw_all_payload=[_delivery_api_payload()])
+    seed_client.get_all_delivery_list()
+    _reset_shared_delivery_cache()
+    failing_client = _CountingSilFucaDeliveryClient(error="network down")
+
+    records = failing_client.get_all_delivery_list(force_refresh=True)
+    status = delivery_module.get_all_delivery_list_cache_status()
+
+    assert failing_client.all_call_count == 1
+    assert records[0].po == "T33U-26040025-0002"
+    assert status.state == "error"
+    assert "network down" in status.error
+    assert "network down" in json.loads(cache_file.read_text(encoding="utf-8"))["error"]
+
+
+def test_sil_fuca_scheduled_refresh_refreshes_missing_cache(monkeypatch, tmp_path) -> None:
+    cache_file = tmp_path / "sil_fuca_all_delivery_list.json"
+    monkeypatch.setenv("SIL_FUCA_DELIVERY_LIST_CACHE_FILE", str(cache_file))
+    _reset_shared_delivery_cache()
+    client = _CountingSilFucaDeliveryClient(raw_all_payload=[_delivery_api_payload()])
+
+    refreshed = delivery_module.refresh_all_delivery_list_if_needed(client_factory=lambda: client)
+
+    assert refreshed is True
+    assert client.all_call_count == 1
+    assert cache_file.is_file()
+
+
+def test_sil_fuca_scheduled_refresh_skips_fresh_cache(monkeypatch, tmp_path) -> None:
+    cache_file = tmp_path / "sil_fuca_all_delivery_list.json"
+    monkeypatch.setenv("SIL_FUCA_DELIVERY_LIST_CACHE_FILE", str(cache_file))
+    _reset_shared_delivery_cache()
+    seed_client = _CountingSilFucaDeliveryClient(raw_all_payload=[_delivery_api_payload()])
+    seed_client.get_all_delivery_list()
+    failing_client = _CountingSilFucaDeliveryClient(error="should not call api")
+
+    refreshed = delivery_module.refresh_all_delivery_list_if_needed(client_factory=lambda: failing_client)
+
+    assert refreshed is False
+    assert failing_client.all_call_count == 0
+
+
+def test_sil_fuca_background_refresh_task_can_start_and_stop(monkeypatch) -> None:
+    monkeypatch.setenv("SIL_FUCA_DELIVERY_LIST_AUTO_REFRESH", "1")
+    monkeypatch.setenv("SIL_FUCA_DELIVERY_LIST_REFRESH_START_DELAY_SECONDS", "3600")
+
+    async def run_task_check() -> None:
+        await delivery_module.stop_delivery_list_background_refresh()
+        delivery_module.start_delivery_list_background_refresh()
+        assert delivery_module._BACKGROUND_REFRESH_TASK is not None
+        assert not delivery_module._BACKGROUND_REFRESH_TASK.done()
+        await delivery_module.stop_delivery_list_background_refresh()
+        assert delivery_module._BACKGROUND_REFRESH_TASK is None
+
+    asyncio.run(run_task_check())
+
+
 def test_booking_body_validation_sil_fuca_delivery_suggests_unique_po_sequence() -> None:
     pn = "1010300202002T01"
     content = _workbook_bytes([_sil_fuca_row(po="T33U-26040025-0001", pn=pn, quantity=20000)])
@@ -485,6 +625,33 @@ def test_booking_body_validation_sil_fuca_delivery_suggests_unique_po_sequence()
     assert wb[wb.sheetnames[0]]["C9"].value == "T33U-26040025-0002"
 
 
+def test_booking_body_validation_incomplete_po_uses_all_delivery_list_candidates() -> None:
+    pn = "1010300202002T01"
+    content = _workbook_bytes([_sil_fuca_row(po="T33U-26040025", pn=pn, quantity=20000)])
+    client = _FakeSilFucaDeliveryClient(
+        all_records=(
+            _delivery_record(po="T33U-26040025-0002", pn=pn, delivery_quantity=20000),
+        ),
+    )
+
+    preview = build_body_validation_preview(
+        content,
+        filename="sil.xlsx",
+        apply_fixes=True,
+        enable_dynamic_checks=True,
+        sil_fuca_delivery_client=client,
+        query_date=date(2026, 6, 29),
+    )
+
+    row = preview.rows[0]
+    assert client.queries == []
+    assert client.all_call_count == 1
+    assert row.values["PO_No"] == "T33U-26040025-0002"
+    assert row.delivery_match_status == "ok"
+    assert row.correction_kind_for("PO_No") == "sil_fuca_delivery_po"
+    assert "PO_No" in row.fixed_fields
+
+
 def test_booking_body_validation_sil_fuca_delivery_flags_missing_record() -> None:
     pn = "1010300202002T01"
     content = _workbook_bytes([_sil_fuca_row(po="K33U-24090083-0001", pn=pn, quantity=20000)])
@@ -508,8 +675,9 @@ def test_booking_body_validation_sil_fuca_delivery_flags_missing_record() -> Non
     assert preview.issue_count == 1
     assert preview.issues[0].correction_kind == "sil_fuca_delivery_missing"
     assert "匹配不上周期交货清单" in preview.issues[0].message
-    assert "PO_No" in preview.rows[0].issue_fields
-    assert "PO_No" in preview.rows[0].source_issue_fields
+    assert "ASN" in preview.rows[0].issue_fields
+    assert "ASN" in preview.rows[0].source_issue_fields
+    assert preview.rows[0].delivery_match_status == "error"
 
 
 def test_booking_body_validation_sil_fuca_delivery_checks_quantity_and_date() -> None:
@@ -540,9 +708,9 @@ def test_booking_body_validation_sil_fuca_delivery_checks_quantity_and_date() ->
         query_date=date(2026, 6, 29),
     )
 
-    messages = {issue.field_code: issue.message for issue in preview.issues}
-    assert "大于周期清单数量 20000" in messages["Quantity"]
-    assert "没有早于周期交货日期 2026-06-29" in messages["PO_No"]
+    messages = [issue.message for issue in preview.issues if issue.field_code == "ASN"]
+    assert any("数量不足" in message and "周期数量 20000" in message for message in messages)
+    assert any("交货日期 2026-06-29 不晚于当前查询日期" in message for message in messages)
 
 
 def test_booking_body_validation_route_marks_error_cells() -> None:
@@ -649,3 +817,52 @@ def test_booking_body_validation_export_downloads_corrected_workbook(monkeypatch
     assert ws["N10"].value == datetime(2026, 3, 23)
     assert ws["N10"].number_format == "yyyy-mm-dd"
     assert str(ws["Y9"].value) == "4000"
+
+
+def test_booking_body_validation_can_start_from_generated_booking_preview(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(booking_routes, "BODY_VALIDATION_UPLOAD_DIR", tmp_path / "uploads")
+    output_path = tmp_path / "generated_booking.xlsx"
+    output_path.write_bytes(_workbook_bytes([_valid_row()]))
+    preview = BookingPreview(
+        session_id="generated-preview",
+        supplier="SIL-FUCA",
+        source_filename="source.eml",
+        pack_filename="pack.xlsx",
+        rows=[{"PO No. *": "C33C-25040701-0001"}],
+        columns=["PO No. *"],
+    )
+    booking_routes.SESSION_STORE["generated-preview"] = {"booking_preview": preview}
+    monkeypatch.setattr(booking_routes, "write_booking_output", lambda _preview: output_path)
+    client = TestClient(booking_app)
+
+    response = client.get("/modules/booking/body-validation/from-preview/generated-preview")
+
+    assert response.status_code == 200
+    assert "源数据导入表" in response.text
+    assert "generated_booking.xlsx" in response.text
+    assert re.search(r'name="validation_session_id" value="[0-9a-f]{32}"', response.text)
+
+
+def test_booking_body_validation_extension_upload_redirects_to_session(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(booking_routes, "BODY_VALIDATION_UPLOAD_DIR", tmp_path / "uploads")
+    content = _workbook_bytes([_valid_row()])
+    client = TestClient(booking_app, follow_redirects=False)
+
+    response = client.post(
+        "/modules/booking/body-validation/extension-upload",
+        files={
+            "booking_file": (
+                "supplier_booking.xlsx",
+                content,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+    assert response.status_code == 303
+    assert re.fullmatch(r"/modules/booking/body-validation/session/[0-9a-f]{32}", response.headers["location"])
+
+    result_response = TestClient(booking_app).get(response.headers["location"])
+    assert result_response.status_code == 200
+    assert "supplier_booking.xlsx" in result_response.text
+    assert "源数据导入表" in result_response.text

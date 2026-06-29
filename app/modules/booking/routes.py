@@ -9,13 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from app.core.paths import OUTPUT_DIR, RUNTIME_DIR
 from app.modules.booking.body_validation import build_body_validation_preview, build_corrected_body_validation_workbook
 from app.modules.booking.flex_texas import export_flex_texas_source_pdf_tiff
 from app.modules.booking.schemas import BookingPreview
-from app.modules.booking.sil_fuca_delivery import SilFucaDeliveryClient
+from app.modules.booking.sil_fuca_delivery import SilFucaDeliveryClient, get_all_delivery_list_cache_status
 from app.modules.booking.service import (
     BookingInputError,
     build_preview_session,
@@ -131,8 +131,8 @@ def body_validation_export_path(export_name: str) -> Path:
     return BODY_VALIDATION_EXPORT_DIR / export_name
 
 
-def build_sil_fuca_delivery_client() -> SilFucaDeliveryClient:
-    return SilFucaDeliveryClient()
+def build_sil_fuca_delivery_client(*, force_refresh_all: bool = False) -> SilFucaDeliveryClient:
+    return SilFucaDeliveryClient(force_refresh_all=force_refresh_all)
 
 
 def write_body_validation_export(
@@ -186,6 +186,7 @@ def body_validation_context(
     export_url: str = "",
     error: str = "",
     validation_session_id: str = "",
+    delivery_cache_status: Any = None,
 ) -> dict[str, Any]:
     return {
         "preview": preview,
@@ -193,6 +194,7 @@ def body_validation_context(
         "export_url": export_url,
         "error": error,
         "validation_session_id": validation_session_id,
+        "delivery_cache_status": delivery_cache_status or get_all_delivery_list_cache_status(),
     }
 
 
@@ -240,12 +242,87 @@ async def booking_body_validation_page(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/modules/booking/body-validation/from-preview/{session_id}", response_class=HTMLResponse)
+async def booking_body_validation_from_preview(request: Request, session_id: str) -> HTMLResponse:
+    try:
+        preview = get_booking_preview(session_id)
+        if not preview.can_generate:
+            raise BookingInputError("当前 Booking 预览存在错误，无法生成 booking form 进入质检。")
+        output_path = write_booking_output(preview)
+        content = output_path.read_bytes()
+        validation_session_id = write_body_validation_upload(content, filename=output_path.name)
+        body_preview = build_body_validation_preview(
+            content,
+            filename=output_path.name,
+            apply_fixes=False,
+            enable_dynamic_checks=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return templates.TemplateResponse(
+            request,
+            "booking_body_validation.html",
+            body_validation_context(error=str(exc)),
+            status_code=400,
+        )
+    return templates.TemplateResponse(
+        request,
+        "booking_body_validation.html",
+        body_validation_context(
+            preview=body_preview,
+            validation_session_id=validation_session_id,
+        ),
+    )
+
+
+@router.get("/modules/booking/body-validation/session/{session_id}", response_class=HTMLResponse)
+async def booking_body_validation_session_page(request: Request, session_id: str) -> HTMLResponse:
+    try:
+        content, filename = read_body_validation_upload(session_id)
+        preview = build_body_validation_preview(
+            content,
+            filename=filename,
+            apply_fixes=False,
+            enable_dynamic_checks=False,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return templates.TemplateResponse(
+            request,
+            "booking_body_validation.html",
+            body_validation_context(error=str(exc)),
+            status_code=400,
+        )
+    return templates.TemplateResponse(
+        request,
+        "booking_body_validation.html",
+        body_validation_context(
+            preview=preview,
+            validation_session_id=session_id,
+        ),
+    )
+
+
+@router.post("/modules/booking/body-validation/extension-upload")
+async def booking_body_validation_extension_upload(booking_file: UploadFile = File(...)) -> RedirectResponse:
+    if not booking_file.filename:
+        raise HTTPException(status_code=400, detail="请上传 booking form xlsx 文件。")
+    filename = booking_file.filename
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="当前筛查页先支持 .xlsx booking form。")
+    content = await booking_file.read()
+    session_id = write_body_validation_upload(content, filename=filename)
+    return RedirectResponse(
+        url=f"/modules/booking/body-validation/session/{session_id}",
+        status_code=303,
+    )
+
+
 @router.post("/modules/booking/body-validation", response_class=HTMLResponse)
 async def preview_booking_body_validation(
     request: Request,
     booking_file: UploadFile | None = File(None),
     apply_fixes: str = Form("0"),
     validation_session_id: str = Form(""),
+    refresh_delivery_list: str = Form("0"),
 ) -> HTMLResponse:
     session_id = validation_session_id.strip()
     if not booking_file and not session_id:
@@ -271,7 +348,9 @@ async def preview_booking_body_validation(
             content, filename = read_body_validation_upload(session_id)
 
         use_fixes = apply_fixes == "1"
-        sil_fuca_delivery_client = build_sil_fuca_delivery_client() if use_fixes else None
+        sil_fuca_delivery_client = (
+            build_sil_fuca_delivery_client(force_refresh_all=refresh_delivery_list == "1") if use_fixes else None
+        )
         preview = build_body_validation_preview(
             content,
             filename=filename,

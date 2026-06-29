@@ -1,0 +1,54 @@
+body {
+  width: 320px;
+  margin: 0;
+  background: #fffdf9;
+  color: #19262a;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+}
+
+main {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 16px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: #6b7780;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #c8d4dc;
+  border-radius: 6px;
+  color: #19262a;
+  font: inherit;
+}
+
+button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  background: #a75061;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+p {
+  min-height: 18px;
+  margin: 0;
+  color: #2f7f56;
+  font-size: 12px;
+}

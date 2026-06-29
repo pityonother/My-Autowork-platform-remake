@@ -19,7 +19,8 @@
     'case_number': 'Case number',
     'Invoice_No': '发票号',
     'Made_In': '产地',
-    'packing': '送货单号',
+    'ASN': '送货单号',
+    'packing': '供应商送货单号',
     'brand': '品牌',
     'LEDBinCode': 'LEDBinCode',
     'min_package': '最小包装数',
@@ -44,9 +45,9 @@
     ('Invoice_Date', '发票日期'),
     ('Made_In', '产地'),
     ('Batch_No', 'Batch No.'),
-    ('ASN', 'ASN'),
+    ('ASN', '送货单号'),
     ('gyskbh', '供应商卡号'),
-    ('packing', '送货单号'),
+    ('packing', '供应商送货单号'),
     ('Tray_Type', 'Tray Type'),
     ('brand', '品牌'),
     ('LEDBinCode', 'LEDBinCode'),
@@ -63,6 +64,10 @@
         <div>
             <h2>上传 booking form</h2>
             <p>选择文件后自动导入源数据并按当前规则标错；原始 Excel 不会被覆盖。</p>
+        </div>
+        <div class="screening-delivery-cache-card {% if delivery_cache_status.state == 'error' %}is-error{% elif delivery_cache_status.state == 'refreshing' %}is-refreshing{% elif delivery_cache_status.is_stale %}is-warning{% elif delivery_cache_status.is_loaded %}is-ready{% endif %}">
+            <span>{{ delivery_cache_status.label }}</span>
+            <button type="submit" form="delivery-refresh-form" {% if not validation_session_id %}disabled{% endif %}>刷新周期清单</button>
         </div>
     </div>
     {% if error %}
@@ -135,6 +140,13 @@
     <form id="screening-suggestion-form" method="post" action="/modules/booking/body-validation">
         <input type="hidden" name="apply_fixes" value="1">
         <input type="hidden" name="validation_session_id" value="{{ validation_session_id }}">
+    </form>
+    {% endif %}
+    {% if validation_session_id %}
+    <form id="delivery-refresh-form" method="post" action="/modules/booking/body-validation">
+        <input type="hidden" name="apply_fixes" value="1">
+        <input type="hidden" name="validation_session_id" value="{{ validation_session_id }}">
+        <input type="hidden" name="refresh_delivery_list" value="1">
     </form>
     {% endif %}
 
@@ -247,15 +259,25 @@
                                 {% set source_tip = row.source_issue_text(code) if preview.applied_fixes else row.issue_text(code) %}
                                 {% set correction_kind = row.correction_kind_for(code) %}
                                 {% set options = row.correction_options_for(code) %}
+                                {% set delivery_status = row.delivery_match_status if code == 'ASN' else '' %}
+                                {% set delivery_tip = row.delivery_match_message if delivery_status else '' %}
                                 <td id="row-{{ row.excel_row }}-{{ code }}"
                                     data-field-code="{{ code }}"
-                                    class="{% if source_tip and correction_kind == 'per_box_expression' %}screening-cell-warning{% elif source_tip %}screening-cell-error{% endif %}"
-                                    {% if source_tip %}title="{{ source_tip }}"{% endif %}>
+                                    class="{% if delivery_status %}screening-delivery-{{ delivery_status }}{% endif %} {% if source_tip and correction_kind == 'per_box_expression' %}screening-cell-warning{% elif source_tip %}screening-cell-error{% endif %}"
+                                    {% if source_tip or delivery_tip %}title="{{ delivery_tip or source_tip }}"{% endif %}>
                                     <span>{{ row.source_values.get(code, row.values.get(code, '')) }}</span>
                                     {% if source_tip and correction_kind == 'date_choice' %}
                                     <span class="screening-hover-note">
                                         <strong>生产日期出现多个值</strong>
                                         <small>识别到 {{ options|join('、') }}；可选择一个或手工输入。</small>
+                                    </span>
+                                    {% elif delivery_status %}
+                                    <span class="screening-hover-note">
+                                        <strong>周期匹配</strong>
+                                        <small>{{ delivery_tip }}</small>
+                                        {% if row.delivery_match_options %}
+                                        <small>{{ row.delivery_match_options|join('；') }}</small>
+                                        {% endif %}
                                     </span>
                                     {% endif %}
                                 </td>
@@ -279,6 +301,35 @@
                         </table>
                     </div>
                 </section>
+
+                {% if preview.applied_fixes %}
+                <section class="screening-delivery-detail-panel">
+                    <div>
+                        <h2>周期候选详情</h2>
+                        <p>点击错误队列或悬停送货单号格子可查看对应原因；这里汇总当前文件的周期匹配结果。</p>
+                    </div>
+                    <div class="screening-delivery-detail-list">
+                        {% for row in preview.rows if row.delivery_match_status %}
+                        <article class="screening-delivery-detail is-{{ row.delivery_match_status }}">
+                            <strong>R{{ row.excel_row }} · {{ row.source_values.get('PO_No', row.values.get('PO_No', '')) }} · {{ row.values.get('Customer_Part_No', '') }}</strong>
+                            <p>{{ row.delivery_match_message }}</p>
+                            {% if row.delivery_match_options %}
+                            <ul>
+                                {% for option in row.delivery_match_options %}
+                                <li>{{ option }}</li>
+                                {% endfor %}
+                            </ul>
+                            {% endif %}
+                        </article>
+                        {% else %}
+                        <article class="screening-delivery-detail">
+                            <strong>暂无周期匹配结果</strong>
+                            <p>点击“查看修正建议”后会执行周期匹配。</p>
+                        </article>
+                        {% endfor %}
+                    </div>
+                </section>
+                {% endif %}
 
                 {% if correction_preview %}
                 {% set manual = namespace(count=0) %}
@@ -309,7 +360,8 @@
                                 {% set fixed = code in row.fixed_fields %}
                                 {% set correction_kind = row.correction_kind_for(code) %}
                                 {% set correction_options = row.correction_options_for(code) %}
-                                <td data-field-code="{{ code }}" class="{% if fixed %}screening-cell-fixed{% elif code in row.issue_fields %}screening-cell-error{% endif %}">
+                                {% set delivery_status = row.delivery_match_status if code == 'ASN' else '' %}
+                                <td data-field-code="{{ code }}" class="{% if delivery_status %}screening-delivery-{{ delivery_status }}{% endif %} {% if fixed %}screening-cell-fixed{% elif code in row.issue_fields %}screening-cell-error{% elif correction_kind == 'sil_fuca_delivery_candidates' %}screening-cell-warning{% endif %}">
                                     {% if correction_kind == 'date_choice' %}
                                     <span class="screening-fixed-value">{{ row.values.get(code, '') }}</span>
                                     <span class="screening-edit-popover" data-date-correction>
@@ -331,6 +383,8 @@
                                     </span>
                                     {% elif fixed %}
                                     <span class="screening-fixed-value" contenteditable="true">{{ row.values.get(code, '') }}</span>
+                                    {% elif correction_kind == 'sil_fuca_delivery_candidates' %}
+                                    <span>{{ row.values.get(code, '') or '选择项次' }}</span>
                                     {% else %}
                                     <span>{{ row.values.get(code, '') }}</span>
                                     {% endif %}

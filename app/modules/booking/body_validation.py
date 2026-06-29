@@ -13,8 +13,8 @@ from app.modules.booking.sil_fuca_delivery import (
     SilFucaDeliveryQuery,
     SilFucaDeliveryRecord,
 )
+from app.modules.booking.legacy_adapter import _country_lookup_key, load_country_abbr_lookup
 from app.shared.lazy_imports import lazy_module
-from booking_store import _country_lookup_key, load_country_abbr_lookup
 
 
 openpyxl = lazy_module("openpyxl")
@@ -60,6 +60,9 @@ class BookingBodyRow:
     source_issue_messages: dict[str, list[str]] = field(default_factory=dict)
     correction_options: dict[str, tuple[str, ...]] = field(default_factory=dict)
     correction_kinds: dict[str, str] = field(default_factory=dict)
+    delivery_match_status: str = ""
+    delivery_match_message: str = ""
+    delivery_match_options: tuple[str, ...] = ()
 
     def issue_text(self, field_code: str) -> str:
         return "；".join(self.issue_messages.get(field_code, []))
@@ -233,6 +236,8 @@ SIL_FUCA_DYNAMIC_PO_PREFIXES = {"T33U", "K33U"}
 @dataclass
 class _SilFucaDeliveryGroup:
     po: str
+    po_base: str
+    is_complete_po: bool
     pn: str
     quantity: Decimal
     rows: list[BookingBodyRow] = field(default_factory=list)
@@ -534,23 +539,37 @@ def _po_base(value: str) -> str:
     return f"{parts[0]}-{parts[1]}"
 
 
+def _valid_po_base(value: str) -> bool:
+    parts = (value or "").upper().split("-")
+    return len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 8 and parts[1].isdigit()
+
+
 def _sil_fuca_delivery_groups(rows: list[BookingBodyRow]) -> list[_SilFucaDeliveryGroup]:
-    groups: dict[tuple[str, str], _SilFucaDeliveryGroup] = {}
+    groups: dict[tuple[str, str, bool], _SilFucaDeliveryGroup] = {}
     for row in rows:
         po = row.values.get("PO_No", "").upper()
         pn = row.values.get("Customer_Part_No", "").upper()
         quantity = _decimal(row.values.get("Quantity", ""))
+        is_complete_po = _valid_po_no(po)
+        po_base = _po_base(po)
         if (
-            not _valid_po_no(po)
-            or po[:4] not in SIL_FUCA_DYNAMIC_PO_PREFIXES
+            not (is_complete_po or _valid_po_base(po))
+            or not po_base
+            or po_base[:4] not in SIL_FUCA_DYNAMIC_PO_PREFIXES
             or not pn
             or quantity is None
             or quantity <= 0
         ):
             continue
-        key = (po, pn)
+        key = (po if is_complete_po else po_base, pn, is_complete_po)
         if key not in groups:
-            groups[key] = _SilFucaDeliveryGroup(po=po, pn=pn, quantity=Decimal("0"))
+            groups[key] = _SilFucaDeliveryGroup(
+                po=po if is_complete_po else po_base,
+                po_base=po_base,
+                is_complete_po=is_complete_po,
+                pn=pn,
+                quantity=Decimal("0"),
+            )
         groups[key].quantity += quantity
         groups[key].rows.append(row)
     return list(groups.values())
@@ -571,22 +590,33 @@ def _delivery_record_problem(
     query: SilFucaDeliveryQuery,
     query_date: date,
 ) -> tuple[str, str] | None:
+    if record.allocation_status == "已分配并使用":
+        return "ASN", f"周期 {record.po} 已分配并使用。"
     if record.delivery_quantity is None:
-        return "Quantity", "周期清单接口没有返回 delivery_quantity，需人工确认。"
+        return "ASN", "周期清单接口没有返回 delivery_quantity，需人工确认。"
     if query.qty > record.delivery_quantity:
         return (
-            "Quantity",
-            f"相同 PO+PN 的 booking 数量合计 {_format_decimal(query.qty)} "
-            f"大于周期清单数量 {_format_decimal(record.delivery_quantity)}。",
+            "ASN",
+            f"周期 {record.po} 数量不足：booking 合计 {_format_decimal(query.qty)} "
+            f"> 周期数量 {_format_decimal(record.delivery_quantity)}。",
         )
     if record.delivery_date is None:
-        return "PO_No", "周期清单接口没有返回 delivery_date，需人工确认。"
+        return "ASN", "周期清单接口没有返回 delivery_date，需人工确认。"
     if query_date >= record.delivery_date:
         return (
-            "PO_No",
-            f"当前查询日期 {query_date:%Y-%m-%d} 没有早于周期交货日期 {record.delivery_date:%Y-%m-%d}。",
+            "ASN",
+            f"周期 {record.po} 交货日期 {record.delivery_date:%Y-%m-%d} 不晚于当前查询日期 {query_date:%Y-%m-%d}。",
         )
     return None
+
+
+def _delivery_record_detail(record: SilFucaDeliveryRecord, query: SilFucaDeliveryQuery, query_date: date) -> str:
+    problem = _delivery_record_problem(record, query, query_date)
+    status = "可用" if problem is None else problem[1]
+    qty = _format_decimal(record.delivery_quantity) if record.delivery_quantity is not None else "未知"
+    delivery_date = record.delivery_date.strftime("%Y-%m-%d") if record.delivery_date else "未知"
+    allocation_status = record.allocation_status or "未使用"
+    return f"{record.po}｜数量 {qty}｜日期 {delivery_date}｜{allocation_status}｜{status}"
 
 
 def _delivery_candidates(
@@ -603,6 +633,35 @@ def _delivery_candidates(
         and _delivery_record_problem(record, query, query_date) is None
     ]
     return tuple(sorted(candidates, key=lambda item: item.po))
+
+
+def _delivery_records_for_group(
+    records: tuple[SilFucaDeliveryRecord, ...],
+    group: _SilFucaDeliveryGroup,
+) -> tuple[SilFucaDeliveryRecord, ...]:
+    return tuple(
+        sorted(
+            (
+                record
+                for record in records
+                if _po_base(record.po) == group.po_base and record.product_code == group.pn
+            ),
+            key=lambda item: item.po,
+        )
+    )
+
+
+def _set_delivery_match(
+    group: _SilFucaDeliveryGroup,
+    status: str,
+    message: str,
+    *,
+    options: tuple[str, ...] = (),
+) -> None:
+    for row in group.rows:
+        row.delivery_match_status = status
+        row.delivery_match_message = message
+        row.delivery_match_options = options
 
 
 def _append_delivery_issue(
@@ -655,52 +714,66 @@ def _apply_sil_fuca_delivery_checks(
         return fix_count, issues, source_issues, warnings
 
     all_records: tuple[SilFucaDeliveryRecord, ...] | None = None
+
+    def load_all_records() -> tuple[SilFucaDeliveryRecord, ...]:
+        nonlocal all_records
+        if all_records is None:
+            all_records = client.get_all_delivery_list()
+        return all_records
+
     for group in groups:
         query = SilFucaDeliveryQuery(po=group.po, pn=group.pn, qty=group.quantity)
+        response: Any = None
+
+        if group.is_complete_po:
+            try:
+                response = client.get_delivery_list_new(query)
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(str(exc))
+                response = None
+
+            if response is not None:
+                record = _matching_delivery_record(response.records, query)
+                if record is not None:
+                    problem = _delivery_record_problem(record, query, query_date)
+                    if problem is not None:
+                        _set_delivery_match(group, "error", problem[1])
+                        _append_delivery_issue(
+                            group=group,
+                            field_code=problem[0],
+                            message=problem[1],
+                            issues=issues,
+                            source_issues=source_issues,
+                            correction_kind="sil_fuca_delivery_invalid",
+                        )
+                    else:
+                        _set_delivery_match(group, "ok", f"周期 {record.po} 匹配成功。")
+                    continue
+
         try:
-            response = client.get_delivery_list_new(query)
+            records_for_group = _delivery_records_for_group(load_all_records(), group)
         except Exception as exc:  # noqa: BLE001
             warnings.append(str(exc))
             continue
 
-        record = _matching_delivery_record(response.records, query)
-        if record is not None:
-            problem = _delivery_record_problem(record, query, query_date)
-            if problem is not None:
-                _append_delivery_issue(
-                    group=group,
-                    field_code=problem[0],
-                    message=problem[1],
-                    issues=issues,
-                    source_issues=source_issues,
-                    correction_kind="sil_fuca_delivery_invalid",
-                )
-            continue
-
-        candidate_records: tuple[SilFucaDeliveryRecord, ...] = ()
-        if apply_fixes:
-            try:
-                if all_records is None:
-                    all_records = client.get_all_delivery_list()
-                candidate_records = _delivery_candidates(all_records, query, query_date)
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(str(exc))
+        candidate_records = _delivery_candidates(records_for_group, query, query_date)
 
         if len(candidate_records) == 1:
             candidate = candidate_records[0]
             message = f"周期清单匹配到可用项次，建议 PO No. 改为 {candidate.po}。"
+            _set_delivery_match(group, "ok", f"周期 {candidate.po} 匹配成功。")
             for row in group.rows:
-                source_issues.append(
-                    _source_issue(
-                        row,
-                        "PO_No",
-                        message,
-                        candidate.po,
-                        correction_options=(candidate.po,),
-                        correction_kind="sil_fuca_delivery_po",
-                    )
-                )
                 if row.values.get("PO_No") != candidate.po:
+                    source_issues.append(
+                        _source_issue(
+                            row,
+                            "PO_No",
+                            message,
+                            candidate.po,
+                            correction_options=(candidate.po,),
+                            correction_kind="sil_fuca_delivery_po",
+                        )
+                    )
                     row.values["PO_No"] = candidate.po
                     row.fixed_fields.add("PO_No")
                     row.correction_options["PO_No"] = (candidate.po,)
@@ -710,24 +783,36 @@ def _apply_sil_fuca_delivery_checks(
 
         if len(candidate_records) > 1:
             options = tuple(record.po for record in candidate_records)
+            details = tuple(_delivery_record_detail(record, query, query_date) for record in candidate_records)
+            message = f"周期清单匹配到多个可用项次：{'、'.join(options)}，需要人工确认。"
+            _set_delivery_match(group, "warning", message, options=details)
             _append_delivery_issue(
                 group=group,
-                field_code="PO_No",
-                message=f"周期清单匹配到多个可用项次：{'、'.join(options)}，需要人工确认。",
+                field_code="ASN",
+                message=message,
                 issues=issues,
                 source_issues=source_issues,
                 suggestion=options[0],
                 correction_options=options,
                 correction_kind="sil_fuca_delivery_candidates",
             )
+            for row in group.rows:
+                row.correction_options["PO_No"] = options
+                row.correction_kinds["PO_No"] = "sil_fuca_delivery_candidates"
             continue
 
-        message = "匹配不上周期交货清单，请检查是否有上传。"
-        if response.errors:
-            message = "；".join(response.errors)
+        if records_for_group:
+            details = tuple(_delivery_record_detail(record, query, query_date) for record in records_for_group)
+            message = "找到了同 PO 基础号和 PN 的周期记录，但没有可用周期：" + "；".join(details)
+            _set_delivery_match(group, "error", message, options=details)
+        else:
+            message = "匹配不上周期交货清单，请检查是否有上传。"
+            if response is not None and getattr(response, "errors", ()):
+                message = "；".join(response.errors)
+            _set_delivery_match(group, "error", message)
         _append_delivery_issue(
             group=group,
-            field_code="PO_No",
+            field_code="ASN",
             message=message,
             issues=issues,
             source_issues=source_issues,
@@ -1322,7 +1407,16 @@ def _validate_body_row(row: BookingBodyRow, country_keys: set[str]) -> list[Book
         issues.append(_issue(row, "Made_In", "Made In 需填写合理国家简称或国家全称。"))
 
     po_no = values.get("PO_No", "")
-    if po_no and not _valid_po_no(po_no):
+    if po_no and _valid_po_base(po_no):
+        issues.append(
+            _issue(
+                row,
+                "PO_No",
+                "PO No. 缺少 4 位项次，需要通过周期清单匹配补齐。",
+                correction_kind="sil_fuca_delivery_incomplete_po",
+            )
+        )
+    elif po_no and not _valid_po_no(po_no):
         po_suggestion = _suggest_po_no(po_no)
         if po_suggestion:
             issues.append(
