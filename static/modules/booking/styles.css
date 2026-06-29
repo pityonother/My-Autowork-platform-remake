@@ -1487,6 +1487,30 @@
     color: #344957;
 }
 
+.screening-cell-input {
+    width: 100%;
+    min-width: 96px;
+    height: 34px;
+    padding: 0 9px;
+    border: 1px solid #a9bdc8;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #17313b;
+    font: inherit;
+    font-size: 12px;
+}
+
+.screening-cell-fixed .screening-cell-input,
+.screening-cell-input.screening-fixed-value {
+    border-color: var(--booking-screen-fix);
+    background: var(--booking-screen-fix-bg);
+}
+
+.screening-cell-input:focus {
+    outline: 2px solid rgba(47, 127, 86, 0.18);
+    outline-offset: 1px;
+}
+
 .screening-correction-table .screening-edit-popover {
     position: absolute;
     left: -34px;

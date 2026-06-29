@@ -336,6 +336,33 @@ def test_booking_body_validation_fills_empty_case_number_with_zero() -> None:
     assert wb[wb.sheetnames[0]]["B9"].value == "0"
 
 
+def test_booking_body_validation_keeps_na_case_number_as_supplier_value() -> None:
+    row = _valid_row()
+    row[2 - 1] = "NA"
+    content = _workbook_bytes([row])
+
+    preview = build_body_validation_preview(content, filename="case-number-na.xlsx", apply_fixes=True)
+
+    assert preview.rows[0].values["case_number"] == "NA"
+    assert "case_number" not in preview.rows[0].fixed_fields
+    assert preview.issue_count == 0
+
+
+def test_booking_body_validation_keeps_na_case_number_when_other_fields_need_review() -> None:
+    row = _valid_row()
+    row[2 - 1] = "NA"
+    row[8 - 1] = ""
+    row[9 - 1] = ""
+    row[10 - 1] = ""
+    content = _workbook_bytes([row])
+
+    preview = build_body_validation_preview(content, filename="case-number-na-with-missing-fields.xlsx", apply_fixes=True)
+
+    assert preview.rows[0].values["case_number"] == "NA"
+    assert "case_number" not in preview.rows[0].fixed_fields
+    assert not any(issue.field_code == "case_number" for issue in preview.issues)
+
+
 def test_booking_body_validation_normalizes_static_text_and_numeric_values() -> None:
     row = _valid_row()
     row[23 - 1] = "BIN"  # Keep LEDBinCode valid after changing nearby fields.
@@ -385,6 +412,73 @@ def test_booking_body_validation_averages_zero_weight_by_case_number() -> None:
     assert preview.issue_count == 0
 
 
+def test_booking_body_validation_averages_missing_weight_with_previous_na_case_line() -> None:
+    first = _valid_row(per_box=4000)
+    first[2 - 1] = "NA"
+    first[9 - 1] = 14.2
+    first[10 - 1] = 14.8
+    second = _valid_row(per_box="")
+    second[1 - 1] = 2
+    second[2 - 1] = "NA"
+    second[8 - 1] = ""
+    second[9 - 1] = ""
+    second[10 - 1] = ""
+    second[14 - 1] = ""
+    second[17 - 1] = ""
+    second[24 - 1] = ""
+    second[25 - 1] = ""
+    content = _workbook_bytes([first, second])
+
+    preview = build_body_validation_preview(content, filename="weights-na.xlsx", apply_fixes=True)
+    first_row, second_row = preview.rows
+
+    assert first_row.values["FJZ"] == "7.1"
+    assert second_row.values["FJZ"] == "7.1"
+    assert first_row.values["G_Wt"] == "7.4"
+    assert second_row.values["G_Wt"] == "7.4"
+    assert first_row.correction_kind_for("FJZ") == "weight_average_previous_line"
+    assert second_row.correction_kind_for("G_Wt") == "weight_average_previous_line"
+    assert second_row.values["per_box"] == ""
+    assert second_row.values["Batch_No"] == ""
+
+
+def test_booking_body_validation_unmerges_weight_cells_when_exporting_previous_line_average() -> None:
+    first = _valid_row(per_box=4000)
+    first[2 - 1] = "NA"
+    first[9 - 1] = 14.2
+    first[10 - 1] = 14.8
+    second = _valid_row(per_box="")
+    second[1 - 1] = 2
+    second[2 - 1] = "NA"
+    second[8 - 1] = ""
+    second[9 - 1] = ""
+    second[10 - 1] = ""
+    second[14 - 1] = ""
+    second[17 - 1] = ""
+    second[24 - 1] = ""
+    second[25 - 1] = ""
+    content = _workbook_bytes([first, second])
+    wb = load_workbook(BytesIO(content))
+    ws = wb[wb.sheetnames[0]]
+    ws.merge_cells("I9:I10")
+    ws.merge_cells("J9:J10")
+    ws.merge_cells("Q9:Q10")
+    buffer = BytesIO()
+    wb.save(buffer)
+
+    corrected = build_corrected_body_validation_workbook(buffer.getvalue(), filename="merged.xlsx")
+    fixed_wb = load_workbook(BytesIO(corrected))
+    fixed_ws = fixed_wb[fixed_wb.sheetnames[0]]
+
+    assert "I9:I10" not in {str(item) for item in fixed_ws.merged_cells.ranges}
+    assert "J9:J10" not in {str(item) for item in fixed_ws.merged_cells.ranges}
+    assert fixed_ws["I9"].value == "7.1"
+    assert fixed_ws["I10"].value == "7.1"
+    assert fixed_ws["J9"].value == "7.4"
+    assert fixed_ws["J10"].value == "7.4"
+    assert fixed_ws["Q9"].value != "0"
+
+
 def test_per_box_expression_parser_matches_supplier_examples() -> None:
     assert _parse_per_box_expression("2K+2K") == "4000"
     assert _parse_per_box_expression("6K*5CARTON+5K+3K*3CARTON+1K*2CARTON") == "46000"
@@ -412,6 +506,78 @@ def test_booking_body_validation_applies_example_corrections() -> None:
     assert "per_box" in first_row.source_issue_fields
     assert "per_box" in second_row.source_issue_fields
     assert preview.source_issue_count == 3
+    assert preview.issue_count == 0
+
+
+def test_booking_body_validation_fills_missing_per_box_from_quantity_and_cartons() -> None:
+    row = _valid_row(per_box="")
+    row[6 - 1] = 6000
+    row[8 - 1] = 2
+    row[24 - 1] = 1500
+    content = _workbook_bytes([row])
+
+    preview = build_body_validation_preview(content, filename="per-box-missing.xlsx", apply_fixes=True)
+
+    assert preview.rows[0].values["per_box"] == "3000"
+    assert preview.rows[0].correction_kind_for("per_box") == "per_box_from_quantity_cartons"
+    assert preview.issue_count == 0
+
+
+def test_booking_body_validation_fills_missing_per_box_from_min_package_when_cartons_is_zero() -> None:
+    row = _valid_row(per_box="")
+    row[6 - 1] = 15000
+    row[8 - 1] = 0
+    row[24 - 1] = 3000
+    content = _workbook_bytes([row])
+
+    preview = build_body_validation_preview(content, filename="per-box-from-min-package.xlsx", apply_fixes=True)
+
+    assert preview.rows[0].values["per_box"] == "3000"
+    assert preview.rows[0].correction_kind_for("per_box") == "per_box_from_min_package"
+    assert not any(issue.field_code == "per_box" for issue in preview.issues)
+    assert any(issue.field_code == "Pkgs" for issue in preview.issues)
+
+
+def test_booking_body_validation_fills_missing_per_box_even_when_case_number_is_na() -> None:
+    row = _valid_row(per_box="")
+    row[2 - 1] = "NA"
+    row[6 - 1] = 6000
+    row[8 - 1] = 2
+    row[24 - 1] = 1500
+    content = _workbook_bytes([row])
+
+    preview = build_body_validation_preview(content, filename="per-box-na-case.xlsx", apply_fixes=True)
+
+    assert preview.rows[0].values["per_box"] == "3000"
+    assert preview.rows[0].correction_kind_for("per_box") == "per_box_from_quantity_cartons"
+    assert preview.issue_count == 0
+
+
+def test_booking_body_validation_fills_missing_per_box_from_min_package_when_na_case_cartons_is_zero() -> None:
+    row = _valid_row(per_box="")
+    row[2 - 1] = "NA"
+    row[6 - 1] = 10000
+    row[8 - 1] = 0
+    row[24 - 1] = 2500
+    content = _workbook_bytes([row])
+
+    preview = build_body_validation_preview(content, filename="per-box-na-from-min-package.xlsx", apply_fixes=True)
+
+    assert preview.rows[0].values["case_number"] == "NA"
+    assert preview.rows[0].values["per_box"] == "2500"
+    assert preview.rows[0].correction_kind_for("per_box") == "per_box_from_min_package"
+    assert "case_number" not in preview.rows[0].fixed_fields
+    assert not any(issue.field_code == "per_box" for issue in preview.issues)
+    assert any(issue.field_code == "Pkgs" for issue in preview.issues)
+
+
+def test_booking_body_validation_strips_week_suffix_from_production_date() -> None:
+    content = _workbook_bytes([_valid_row(made_date="2614M")])
+
+    preview = build_body_validation_preview(content, filename="week-suffix.xlsx", apply_fixes=True)
+
+    assert preview.rows[0].values["madeDate"] == "2614"
+    assert preview.rows[0].correction_kind_for("madeDate") == "date_week_normalize"
     assert preview.issue_count == 0
 
 
@@ -462,6 +628,39 @@ def test_booking_body_validation_sil_fuca_delivery_accepts_successful_record() -
     assert client.queries[0].qty == Decimal("20000")
     assert preview.issue_count == 0
     assert preview.fix_count == 0
+
+
+def test_booking_body_validation_delivery_checks_use_shared_po_prefixes() -> None:
+    pn = "1010176925000"
+    content = _workbook_bytes([_valid_row(per_box=18000)])
+    wb = load_workbook(BytesIO(content))
+    ws = wb[wb.sheetnames[0]]
+    ws["C9"] = "E33K-26030121-0009"
+    ws["D9"] = pn
+    ws["F9"] = 18000
+    buffer = BytesIO()
+    wb.save(buffer)
+    client = _FakeSilFucaDeliveryClient(
+        new_records={
+            ("E33K-26030121-0009", pn): (
+                _delivery_record(po="E33K-26030121-0009", pn=pn, delivery_quantity=48000),
+            )
+        }
+    )
+
+    preview = build_body_validation_preview(
+        buffer.getvalue(),
+        filename="e33k.xlsx",
+        apply_fixes=True,
+        enable_dynamic_checks=True,
+        sil_fuca_delivery_client=client,
+        query_date=date(2026, 6, 29),
+    )
+
+    assert len(client.queries) == 1
+    assert client.queries[0].po == "E33K-26030121-0009"
+    assert preview.rows[0].delivery_match_status == "ok"
+    assert not any(issue.correction_kind.startswith("sil_fuca_delivery") for issue in preview.issues)
 
 
 def test_sil_fuca_delivery_record_parses_api_date() -> None:
@@ -801,7 +1000,25 @@ def test_booking_body_validation_export_downloads_corrected_workbook(monkeypatch
     )
 
     assert suggestion_response.status_code == 200
-    match = re.search(r'href="([^"]*/modules/booking/body-validation/export/[^"]+)"', suggestion_response.text)
+    assert "/modules/booking/body-validation/export/" not in suggestion_response.text
+
+    export_response = client.post(
+        "/modules/booking/body-validation",
+        data={
+            "apply_fixes": "1",
+            "validation_session_id": session_match.group(1),
+            "confirm_export": "1",
+            "manual_values_json": json.dumps(
+                {
+                    "9": {"madeDate": "2026-01-12", "per_box": "4000"},
+                    "10": {"madeDate": "2026-03-23"},
+                }
+            ),
+        },
+    )
+
+    assert export_response.status_code == 200
+    match = re.search(r'href="([^"]*/modules/booking/body-validation/export/[^"]+)"', export_response.text)
     assert match
 
     download = client.get(match.group(1))

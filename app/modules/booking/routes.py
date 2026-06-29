@@ -12,10 +12,19 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 
 from app.core.paths import OUTPUT_DIR, RUNTIME_DIR
-from app.modules.booking.body_validation import build_body_validation_preview, build_corrected_body_validation_workbook
+from app.modules.booking.body_validation import (
+    BODY_FIELDS,
+    ManualBodyValues,
+    build_body_validation_preview,
+    build_corrected_body_validation_workbook,
+)
 from app.modules.booking.flex_texas import export_flex_texas_source_pdf_tiff
 from app.modules.booking.schemas import BookingPreview
-from app.modules.booking.sil_fuca_delivery import SilFucaDeliveryClient, get_all_delivery_list_cache_status
+from app.modules.booking.sil_fuca_delivery import (
+    SilFucaDeliveryClient,
+    get_all_delivery_list_cache_status,
+    refresh_all_delivery_list_if_needed,
+)
 from app.modules.booking.service import (
     BookingInputError,
     build_preview_session,
@@ -141,6 +150,7 @@ def write_body_validation_export(
     filename: str,
     enable_dynamic_checks: bool = False,
     sil_fuca_delivery_client: SilFucaDeliveryClient | None = None,
+    manual_values: ManualBodyValues | None = None,
 ) -> Path:
     BODY_VALIDATION_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     export_id = uuid.uuid4().hex[:12]
@@ -151,9 +161,35 @@ def write_body_validation_export(
             filename=filename,
             enable_dynamic_checks=enable_dynamic_checks,
             sil_fuca_delivery_client=sil_fuca_delivery_client,
+            manual_values=manual_values,
         )
     )
     return output_path
+
+
+def parse_body_validation_manual_values(raw: str) -> ManualBodyValues:
+    text = (raw or "").strip()
+    if not text:
+        return {}
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("人工确认值格式错误，请重新确认修正建议。") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("人工确认值格式错误，请重新确认修正建议。")
+    allowed_fields = {field.code for field in BODY_FIELDS}
+    values: ManualBodyValues = {}
+    for row_key, row_values in payload.items():
+        try:
+            excel_row = int(row_key)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("人工确认值包含无效行号。") from exc
+        if not isinstance(row_values, dict):
+            raise ValueError("人工确认值格式错误，请重新确认修正建议。")
+        for field_code, value in row_values.items():
+            if field_code in allowed_fields:
+                values[(excel_row, field_code)] = str(value or "").strip()
+    return values
 
 
 def body_validation_upload_paths(session_id: str) -> tuple[Path, Path]:
@@ -323,6 +359,8 @@ async def preview_booking_body_validation(
     apply_fixes: str = Form("0"),
     validation_session_id: str = Form(""),
     refresh_delivery_list: str = Form("0"),
+    confirm_export: str = Form("0"),
+    manual_values_json: str = Form(""),
 ) -> HTMLResponse:
     session_id = validation_session_id.strip()
     if not booking_file and not session_id:
@@ -348,6 +386,8 @@ async def preview_booking_body_validation(
             content, filename = read_body_validation_upload(session_id)
 
         use_fixes = apply_fixes == "1"
+        if use_fixes and refresh_delivery_list == "1":
+            refresh_all_delivery_list_if_needed(force=True)
         sil_fuca_delivery_client = (
             build_sil_fuca_delivery_client(force_refresh_all=refresh_delivery_list == "1") if use_fixes else None
         )
@@ -360,12 +400,14 @@ async def preview_booking_body_validation(
         )
         suggestion_preview = preview if use_fixes else None
         export_url = ""
-        if use_fixes:
+        if use_fixes and confirm_export == "1":
+            manual_values = parse_body_validation_manual_values(manual_values_json)
             export_path = write_body_validation_export(
                 content,
                 filename=filename,
                 enable_dynamic_checks=True,
                 sil_fuca_delivery_client=sil_fuca_delivery_client,
+                manual_values=manual_values,
             )
             export_url = f"/modules/booking/body-validation/export/{export_path.name}"
     except Exception as exc:  # noqa: BLE001

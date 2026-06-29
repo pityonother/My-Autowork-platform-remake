@@ -149,6 +149,14 @@
         <input type="hidden" name="refresh_delivery_list" value="1">
     </form>
     {% endif %}
+    {% if correction_preview and validation_session_id %}
+    <form id="screening-export-form" method="post" action="/modules/booking/body-validation" data-confirm-export-form>
+        <input type="hidden" name="apply_fixes" value="1">
+        <input type="hidden" name="validation_session_id" value="{{ validation_session_id }}">
+        <input type="hidden" name="confirm_export" value="1">
+        <input type="hidden" name="manual_values_json" value="" data-manual-values-json>
+    </form>
+    {% endif %}
 
     <div class="screening-workspace">
         <aside class="screening-sidebar">
@@ -361,9 +369,10 @@
                                 {% set correction_kind = row.correction_kind_for(code) %}
                                 {% set correction_options = row.correction_options_for(code) %}
                                 {% set delivery_status = row.delivery_match_status if code == 'ASN' else '' %}
+                                {% set editable = fixed or code in row.issue_fields or code in row.source_issue_fields or correction_kind == 'sil_fuca_delivery_candidates' %}
                                 <td data-field-code="{{ code }}" class="{% if delivery_status %}screening-delivery-{{ delivery_status }}{% endif %} {% if fixed %}screening-cell-fixed{% elif code in row.issue_fields %}screening-cell-error{% elif correction_kind == 'sil_fuca_delivery_candidates' %}screening-cell-warning{% endif %}">
                                     {% if correction_kind == 'date_choice' %}
-                                    <span class="screening-fixed-value">{{ row.values.get(code, '') }}</span>
+                                    <input class="screening-cell-input screening-fixed-value" form="screening-export-form" value="{{ row.values.get(code, '') }}" data-manual-input data-row="{{ row.excel_row }}" data-field="{{ code }}" aria-label="R{{ row.excel_row }} {{ label }}">
                                     <span class="screening-edit-popover" data-date-correction>
                                         <strong>人工编辑</strong>
                                         <span class="screening-choice-title">算法识别值</span>
@@ -381,8 +390,8 @@
                                         </label>
                                         <button type="button" data-apply-manual>应用</button>
                                     </span>
-                                    {% elif fixed %}
-                                    <span class="screening-fixed-value" contenteditable="true">{{ row.values.get(code, '') }}</span>
+                                    {% elif editable %}
+                                    <input class="screening-cell-input {% if fixed %}screening-fixed-value{% endif %}" form="screening-export-form" value="{{ row.values.get(code, '') }}" data-manual-input data-row="{{ row.excel_row }}" data-field="{{ code }}" aria-label="R{{ row.excel_row }} {{ label }}">
                                     {% elif correction_kind == 'sil_fuca_delivery_candidates' %}
                                     <span>{{ row.values.get(code, '') or '选择项次' }}</span>
                                     {% else %}
@@ -413,7 +422,7 @@
                         {% if export_url %}
                         <a class="screening-primary-action" href="{{ export_url }}" download>导出修正版</a>
                         {% else %}
-                        <button class="screening-primary-action" type="button" disabled>导出修正版</button>
+                        <button class="screening-primary-action" type="submit" form="screening-export-form">确认并生成修正版</button>
                         {% endif %}
                     </div>
                 </footer>
@@ -475,7 +484,12 @@
                 if (!cell) return;
                 var target = cell.querySelector('.screening-fixed-value');
                 var manualValue = input ? input.value.trim() : '';
-                if (target) target.textContent = manualValue || selectedAlgorithmValue(control);
+                if (!target) return;
+                if ('value' in target) {
+                    target.value = manualValue || selectedAlgorithmValue(control);
+                } else {
+                    target.textContent = manualValue || selectedAlgorithmValue(control);
+                }
             }
             control.addEventListener('change', function (event) {
                 if (event.target && event.target.matches('[data-date-choice]') && input && !input.value.trim()) {
@@ -484,6 +498,24 @@
             });
             if (button) button.addEventListener('click', applyValue);
         })(dateControls[j]);
+    }
+
+    var confirmExportForm = document.querySelector('[data-confirm-export-form]');
+    if (confirmExportForm) {
+        confirmExportForm.addEventListener('submit', function () {
+            var payload = {};
+            var inputs = document.querySelectorAll('[data-manual-input]');
+            for (var inputIndex = 0; inputIndex < inputs.length; inputIndex++) {
+                var item = inputs[inputIndex];
+                var row = item.getAttribute('data-row');
+                var field = item.getAttribute('data-field');
+                if (!row || !field) continue;
+                if (!payload[row]) payload[row] = {};
+                payload[row][field] = item.value || '';
+            }
+            var target = confirmExportForm.querySelector('[data-manual-values-json]');
+            if (target) target.value = JSON.stringify(payload);
+        });
     }
 
     var fieldGroups = {

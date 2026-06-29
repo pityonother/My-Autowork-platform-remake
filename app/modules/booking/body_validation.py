@@ -15,6 +15,7 @@ from app.modules.booking.sil_fuca_delivery import (
 )
 from app.modules.booking.legacy_adapter import _country_lookup_key, load_country_abbr_lookup
 from app.shared.lazy_imports import lazy_module
+from booking_rules.common import PURCHASER_BY_PO_PREFIX
 
 
 openpyxl = lazy_module("openpyxl")
@@ -183,22 +184,8 @@ REQUIRED_FIELDS = {
 }
 ALLOW_ZERO_NUMERIC_FIELDS = {"Pkgs", "FJZ", "G_Wt", "CBM", "Pallet", "min_package"}
 INTEGER_FIELDS = {"Pkgs", "Pallet"}
-POSITIVE_WEIGHT_PO_PREFIXES = {
-    "W33D",
-    "V33D",
-    "K33U",
-    "V33U",
-    "C33C",
-    "E33J",
-    "V33J",
-    "E330",
-    "V33C",
-    "T33U",
-    "M33U",
-    "C33E",
-    "M33E",
-    "E33L",
-}
+KNOWN_PO_PREFIXES = set(PURCHASER_BY_PO_PREFIX)
+POSITIVE_WEIGHT_PO_PREFIXES = KNOWN_PO_PREFIXES | {"E330"}
 FALLBACK_COUNTRY_KEYS = {
     "CN",
     "CHINA",
@@ -230,7 +217,17 @@ NUMERIC_FIELD_CODES = {"Quantity", "Pkgs", "FJZ", "G_Wt", "CBM", "Pallet", "min_
 UNIT_NORMALIZABLE_NUMERIC_FIELDS = NUMERIC_FIELD_CODES - {"per_box"}
 MANUAL_REVIEW_NA_FIELDS = {"Pkgs", "FJZ", "G_Wt", "CBM", "min_package"}
 WEIGHT_AVERAGE_SCALE = Decimal("0.001")
-SIL_FUCA_DYNAMIC_PO_PREFIXES = {"T33U", "K33U"}
+SIL_FUCA_DYNAMIC_PO_PREFIXES = KNOWN_PO_PREFIXES
+AMBIGUOUS_NA_CASE_MANUAL_FIELDS = {
+    "Pkgs",
+    "FJZ",
+    "G_Wt",
+    "CBM",
+    "Pallet",
+    "Batch_No",
+    "madeDate",
+    "min_package",
+}
 
 
 @dataclass
@@ -449,6 +446,11 @@ def _extract_date_candidates(value: str) -> tuple[str, ...]:
         add(_format_date_candidate(match.group(1), match.group(2), match.group(3)))
 
     return tuple(candidates)
+
+
+def _extract_week_code_candidate(value: str) -> str | None:
+    match = re.fullmatch(r"((?:\d{4})|(?:\d{6}))[A-Z]+", (value or "").strip().upper())
+    return match.group(1) if match else None
 
 
 def _parse_per_box_expression(value: str) -> str | None:
@@ -937,6 +939,9 @@ def _auto_fix_value(field_code: str, values: dict[str, str]) -> BookingBodyFix |
             fixed = f"{number:.0f}"
             return BookingBodyFix(fixed, f"整数格式统一为 {fixed}", "integer")
     if field_code == "madeDate" and value:
+        week_code = _extract_week_code_candidate(value)
+        if week_code:
+            return BookingBodyFix(week_code, f"周数去掉字母后为 {week_code}", "date_week_normalize", (week_code,))
         candidates = _extract_date_candidates(value)
         if len(candidates) >= 2:
             return BookingBodyFix(
@@ -948,6 +953,16 @@ def _auto_fix_value(field_code: str, values: dict[str, str]) -> BookingBodyFix |
         if len(candidates) == 1 and candidates[0] != value:
             return BookingBodyFix(candidates[0], f"日期格式统一为 {candidates[0]}", "date_normalize", candidates)
     if field_code == "per_box":
+        if _is_missing(value):
+            quantity_number = _decimal(values.get("Quantity", ""))
+            pkgs_number = _decimal(values.get("Pkgs", ""))
+            if quantity_number is not None and pkgs_number is not None and quantity_number > 0 and pkgs_number > 0:
+                fixed = _format_decimal(quantity_number / pkgs_number)
+                return BookingBodyFix(fixed, f"按 Quantity / Cartons 计算为 {fixed}", "per_box_from_quantity_cartons")
+            min_package_number = _decimal(values.get("min_package", ""))
+            if min_package_number is not None and min_package_number > 0:
+                fixed = _format_decimal(min_package_number)
+                return BookingBodyFix(fixed, f"按 Min package 默认补为 {fixed}", "per_box_from_min_package")
         parsed_expression = _parse_per_box_expression(value)
         if parsed_expression is not None and parsed_expression != value:
             return BookingBodyFix(parsed_expression, f"表达式换算为 {parsed_expression}", "per_box_expression")
@@ -991,11 +1006,52 @@ def _split_decimal_total(total: Decimal, count: int) -> list[Decimal]:
     return values
 
 
+def _is_ambiguous_na_case_missing_line(row: BookingBodyRow) -> bool:
+    if row.values.get("case_number", "").strip().upper() != "NA":
+        return False
+    return any(_is_no_value(row.values.get(field_code, ""), include_zero=True) for field_code in ("Pkgs", "FJZ", "G_Wt"))
+
+
+def _same_po_pn(first: BookingBodyRow, second: BookingBodyRow) -> bool:
+    return (
+        first.values.get("PO_No", "").strip().upper() == second.values.get("PO_No", "").strip().upper()
+        and first.values.get("Customer_Part_No", "").strip().upper()
+        == second.values.get("Customer_Part_No", "").strip().upper()
+    )
+
+
+def _apply_previous_line_weight_average_for_na_case(rows: list[BookingBodyRow]) -> int:
+    fix_count = 0
+    for index, row in enumerate(rows):
+        if index == 0 or not _is_ambiguous_na_case_missing_line(row):
+            continue
+        previous = rows[index - 1]
+        if not _same_po_pn(previous, row):
+            continue
+        for field_code in ("FJZ", "G_Wt"):
+            previous_value = _decimal(previous.values.get(field_code, ""))
+            current_value = _decimal(row.values.get(field_code, ""))
+            if previous_value is None or previous_value <= 0:
+                continue
+            if current_value is not None and current_value > 0:
+                continue
+            total = previous_value + (current_value or Decimal("0"))
+            averaged_values = _split_decimal_total(total, 2)
+            for target_row, averaged in zip((previous, row), averaged_values):
+                fixed = _format_decimal(averaged)
+                if target_row.values.get(field_code, "") != fixed:
+                    target_row.values[field_code] = fixed
+                    fix_count += 1
+                target_row.fixed_fields.add(field_code)
+                target_row.correction_kinds[field_code] = "weight_average_previous_line"
+    return fix_count
+
+
 def _apply_weight_average_by_case(rows: list[BookingBodyRow]) -> int:
     groups: dict[str, list[BookingBodyRow]] = {}
     for row in rows:
         case_number = row.values.get("case_number", "")
-        if case_number:
+        if case_number and case_number.strip().upper() != "NA":
             groups.setdefault(case_number, []).append(row)
 
     fix_count = 0
@@ -1029,8 +1085,12 @@ def _apply_weight_average_by_case(rows: list[BookingBodyRow]) -> int:
 def _apply_static_fixes(rows: list[BookingBodyRow]) -> int:
     fix_count = 0
     for row in rows:
-        fix_count += _apply_packaging_quantity_fallback(row)
+        ambiguous_na_case = _is_ambiguous_na_case_missing_line(row)
+        if not ambiguous_na_case:
+            fix_count += _apply_packaging_quantity_fallback(row)
         for field in BODY_FIELDS:
+            if ambiguous_na_case and field.code in AMBIGUOUS_NA_CASE_MANUAL_FIELDS:
+                continue
             if field.code == "madeDate" and _needs_excel_date_format_fix(row):
                 row.fixed_fields.add(field.code)
                 row.correction_options[field.code] = (row.values.get(field.code, ""),)
@@ -1048,6 +1108,7 @@ def _apply_static_fixes(rows: list[BookingBodyRow]) -> int:
             if fixed.kind:
                 row.correction_kinds[field.code] = fixed.kind
             fix_count += 1
+    fix_count += _apply_previous_line_weight_average_for_na_case(rows)
     fix_count += _apply_weight_average_by_case(rows)
     return fix_count
 
@@ -1365,8 +1426,20 @@ def _validate_body_row(row: BookingBodyRow, country_keys: set[str]) -> list[Book
 
     production_date = values.get("madeDate", "")
     if production_date and not _valid_production_date(production_date):
+        week_code = _extract_week_code_candidate(production_date)
         candidates = _extract_date_candidates(production_date)
-        if len(candidates) >= 2:
+        if week_code:
+            issues.append(
+                _issue(
+                    row,
+                    "madeDate",
+                    "Production date 为周数加字母，系统只保留周数。",
+                    week_code,
+                    correction_options=(week_code,),
+                    correction_kind="date_week_normalize",
+                )
+            )
+        elif len(candidates) >= 2:
             issues.append(
                 _issue(
                     row,
@@ -1542,16 +1615,54 @@ def build_body_validation_preview(
     )
 
 
-def _write_corrected_cell(cell: Any, field_code: str, value: str) -> None:
+ManualBodyValues = dict[tuple[int, str], str]
+
+
+def _merged_cell_anchor(ws: Any, coordinate: str, value: str, *, split_merged: bool) -> Any | None:
+    for merged_range in list(ws.merged_cells.ranges):
+        if coordinate not in merged_range:
+            continue
+        min_col, min_row, _max_col, _max_row = merged_range.bounds
+        if split_merged:
+            ws.unmerge_cells(str(merged_range))
+            return ws[coordinate]
+        anchor = ws.cell(row=min_row, column=min_col)
+        if anchor.coordinate == coordinate:
+            return anchor
+        anchor_text = _cell_text(anchor.value)
+        if anchor_text and anchor_text != value:
+            return None
+        return anchor
+    return ws[coordinate]
+
+
+def _write_corrected_cell(ws: Any, coordinate: str, field_code: str, value: str, *, split_merged: bool = False) -> bool:
+    cell = _merged_cell_anchor(ws, coordinate, value, split_merged=split_merged)
+    if cell is None:
+        return False
     if field_code == "madeDate":
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
             cell.value = datetime.strptime(value, "%Y-%m-%d").date()
             cell.number_format = "yyyy-mm-dd"
-            return
+            return True
         cell.value = value
         cell.number_format = "@"
-        return
+        return True
     cell.value = value
+    return True
+
+
+def _apply_manual_values(rows: list[BookingBodyRow], manual_values: ManualBodyValues | None) -> None:
+    if not manual_values:
+        return
+    rows_by_excel_row = {row.excel_row: row for row in rows}
+    for (excel_row, field_code), value in manual_values.items():
+        row = rows_by_excel_row.get(excel_row)
+        if row is None or field_code not in FIELDS_BY_CODE:
+            continue
+        row.values[field_code] = value
+        row.fixed_fields.add(field_code)
+        row.correction_kinds[field_code] = row.correction_kinds.get(field_code) or "manual_confirmed"
 
 
 def build_corrected_body_validation_workbook(
@@ -1561,6 +1672,7 @@ def build_corrected_body_validation_workbook(
     enable_dynamic_checks: bool = False,
     sil_fuca_delivery_client: SilFucaDeliveryClient | None = None,
     query_date: date | None = None,
+    manual_values: ManualBodyValues | None = None,
 ) -> bytes:
     preview = build_body_validation_preview(
         workbook_bytes,
@@ -1570,13 +1682,21 @@ def build_corrected_body_validation_workbook(
         sil_fuca_delivery_client=sil_fuca_delivery_client,
         query_date=query_date,
     )
+    _apply_manual_values(preview.rows, manual_values)
     wb = openpyxl.load_workbook(BytesIO(workbook_bytes))
     ws = wb[wb.sheetnames[0]]
     for row in preview.rows:
         for field in BODY_FIELDS:
             value = row.values.get(field.code, "")
             if field.code in row.fixed_fields or (field.code == "madeDate" and value and _valid_production_date(value)):
-                _write_corrected_cell(ws[f"{field.column_letter}{row.excel_row}"], field.code, value)
+                split_merged = row.correction_kind_for(field.code) == "weight_average_previous_line"
+                _write_corrected_cell(
+                    ws,
+                    f"{field.column_letter}{row.excel_row}",
+                    field.code,
+                    value,
+                    split_merged=split_merged,
+                )
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
