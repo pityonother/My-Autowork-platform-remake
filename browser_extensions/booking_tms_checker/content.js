@@ -1,6 +1,7 @@
 (function () {
   const CONFIG = window.BookingTmsCheckerConfig || {};
   const DEFAULT_SERVER_BASE = CONFIG.defaultServerBase || 'https://192.168.10.205';
+  const DEFAULT_SERVER_PORT = CONFIG.defaultServerPort || '8042';
   const STORAGE_KEY = 'bookingServerBase';
 
   if (document.getElementById('booking-tms-checker-host')) {
@@ -8,8 +9,17 @@
   }
 
   function normalizeBase(value) {
-    const text = String(value || '').trim() || DEFAULT_SERVER_BASE;
-    return text.replace(/\/+$/, '');
+    const raw = String(value || '').trim() || DEFAULT_SERVER_BASE;
+    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+    try {
+      const url = new URL(withScheme);
+      if (!url.port && DEFAULT_SERVER_PORT) {
+        url.port = DEFAULT_SERVER_PORT;
+      }
+      return url.toString().replace(/\/+$/, '');
+    } catch (_error) {
+      return withScheme.replace(/\/+$/, '');
+    }
   }
 
   function escapeHtml(value) {
@@ -28,7 +38,7 @@
         !chrome.storage ||
         !chrome.storage.local
       ) {
-        resolve(DEFAULT_SERVER_BASE);
+        resolve(normalizeBase(DEFAULT_SERVER_BASE));
         return;
       }
       chrome.storage.local.get({ [STORAGE_KEY]: DEFAULT_SERVER_BASE }, (items) => {

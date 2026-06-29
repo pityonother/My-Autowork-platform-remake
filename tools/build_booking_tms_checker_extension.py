@@ -11,22 +11,32 @@ from urllib.parse import urlparse
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 EXTENSION_SOURCE_DIR = PROJECT_ROOT / "browser_extensions" / "booking_tms_checker"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "dist" / "booking_tms_checker_edge"
+DEFAULT_SERVER_PORT = "8042"
 
 
 def normalize_server_base(value: str) -> str:
     server_base = value.strip().rstrip("/")
+    if "://" not in server_base:
+        server_base = f"https://{server_base}"
     parsed = urlparse(server_base)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("server base must be a full http(s) URL, for example http://192.168.1.20:8042")
+        raise ValueError("server base must be a full http(s) URL, for example https://192.168.10.205:8042")
     if parsed.params or parsed.query or parsed.fragment:
         raise ValueError("server base must not include params, query, or fragment")
-    return server_base
+    if parsed.port is None and DEFAULT_SERVER_PORT:
+        hostname = parsed.hostname or parsed.netloc
+        if ":" in hostname and not hostname.startswith("["):
+            hostname = f"[{hostname}]"
+        netloc = f"{hostname}:{DEFAULT_SERVER_PORT}"
+        return parsed._replace(netloc=netloc).geturl().rstrip("/")
+    return parsed.geturl().rstrip("/")
 
 
 def render_config_js(server_base: str) -> str:
     return (
         "window.BookingTmsCheckerConfig = Object.freeze({\n"
         f"  defaultServerBase: {json.dumps(server_base, ensure_ascii=False)},\n"
+        f"  defaultServerPort: {json.dumps(DEFAULT_SERVER_PORT, ensure_ascii=False)},\n"
         "});\n"
     )
 
@@ -97,7 +107,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--server-base",
         required=True,
-        help="Booking Web service base URL, for example http://192.168.1.20:8042",
+        help="Booking Web service base URL, for example https://192.168.10.205:8042",
     )
     parser.add_argument(
         "--output-dir",

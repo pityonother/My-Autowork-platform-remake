@@ -438,7 +438,8 @@ def test_booking_body_validation_averages_missing_weight_with_previous_na_case_l
     assert second_row.values["G_Wt"] == "7.4"
     assert first_row.correction_kind_for("FJZ") == "weight_average_previous_line"
     assert second_row.correction_kind_for("G_Wt") == "weight_average_previous_line"
-    assert second_row.values["per_box"] == ""
+    assert second_row.values["per_box"] == "4000"
+    assert second_row.correction_kind_for("per_box") == "per_box_from_quantity"
     assert second_row.values["Batch_No"] == ""
 
 
@@ -509,7 +510,7 @@ def test_booking_body_validation_applies_example_corrections() -> None:
     assert preview.issue_count == 0
 
 
-def test_booking_body_validation_fills_missing_per_box_from_quantity_and_cartons() -> None:
+def test_booking_body_validation_fills_missing_per_box_from_min_package() -> None:
     row = _valid_row(per_box="")
     row[6 - 1] = 6000
     row[8 - 1] = 2
@@ -518,8 +519,35 @@ def test_booking_body_validation_fills_missing_per_box_from_quantity_and_cartons
 
     preview = build_body_validation_preview(content, filename="per-box-missing.xlsx", apply_fixes=True)
 
-    assert preview.rows[0].values["per_box"] == "3000"
-    assert preview.rows[0].correction_kind_for("per_box") == "per_box_from_quantity_cartons"
+    assert preview.rows[0].values["per_box"] == "1500"
+    assert preview.rows[0].correction_kind_for("per_box") == "per_box_from_min_package"
+    assert preview.issue_count == 0
+
+
+def test_booking_body_validation_fills_invalid_per_box_from_min_package() -> None:
+    row = _valid_row(per_box=3000)
+    row[24 - 1] = 2500
+    content = _workbook_bytes([row])
+
+    preview = build_body_validation_preview(content, filename="per-box-invalid.xlsx", apply_fixes=True)
+
+    assert preview.rows[0].values["per_box"] == "2500"
+    assert preview.rows[0].correction_kind_for("per_box") == "per_box_from_min_package"
+    assert preview.issue_count == 0
+
+
+def test_booking_body_validation_fills_empty_min_package_and_per_box_from_quantity() -> None:
+    row = _valid_row(per_box="")
+    row[6 - 1] = 6000
+    row[24 - 1] = ""
+    content = _workbook_bytes([row])
+
+    preview = build_body_validation_preview(content, filename="per-box-from-quantity.xlsx", apply_fixes=True)
+
+    assert preview.rows[0].values["min_package"] == "6000"
+    assert preview.rows[0].values["per_box"] == "6000"
+    assert preview.rows[0].correction_kind_for("min_package") == "fallback_quantity"
+    assert preview.rows[0].correction_kind_for("per_box") == "fallback_quantity"
     assert preview.issue_count == 0
 
 
@@ -548,8 +576,8 @@ def test_booking_body_validation_fills_missing_per_box_even_when_case_number_is_
 
     preview = build_body_validation_preview(content, filename="per-box-na-case.xlsx", apply_fixes=True)
 
-    assert preview.rows[0].values["per_box"] == "3000"
-    assert preview.rows[0].correction_kind_for("per_box") == "per_box_from_quantity_cartons"
+    assert preview.rows[0].values["per_box"] == "1500"
+    assert preview.rows[0].correction_kind_for("per_box") == "per_box_from_min_package"
     assert preview.issue_count == 0
 
 

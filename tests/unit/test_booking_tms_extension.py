@@ -39,23 +39,34 @@ def test_booking_tms_extension_submits_to_extension_upload_route() -> None:
 
 def test_booking_tms_extension_defaults_to_mac_mini_server() -> None:
     expected_server = "https://192.168.10.205"
+    expected_port = "8042"
 
     assert expected_server in (EXTENSION_DIR / "config.js").read_text(encoding="utf-8")
     assert expected_server in (EXTENSION_DIR / "content.js").read_text(encoding="utf-8")
     assert expected_server in (EXTENSION_DIR / "popup.js").read_text(encoding="utf-8")
+    assert expected_port in (EXTENSION_DIR / "config.js").read_text(encoding="utf-8")
+    assert expected_port in (EXTENSION_DIR / "content.js").read_text(encoding="utf-8")
+    assert expected_port in (EXTENSION_DIR / "popup.js").read_text(encoding="utf-8")
+
+
+def test_booking_tms_extension_normalizes_missing_scheme_and_port() -> None:
+    assert normalize_server_base("192.168.10.205") == "https://192.168.10.205:8042"
+    assert normalize_server_base("https://192.168.10.205") == "https://192.168.10.205:8042"
+    assert normalize_server_base("https://192.168.10.205:9443") == "https://192.168.10.205:9443"
 
 
 def test_booking_tms_extension_build_package_injects_server_base(tmp_path) -> None:
     output_dir = tmp_path / "booking_tms_checker_edge"
 
-    package_dir, zip_path = build_package("http://192.168.1.20:8042/", output_dir=output_dir)
+    package_dir, zip_path = build_package("https://192.168.10.205/", output_dir=output_dir)
 
     assert package_dir == output_dir.resolve()
     assert zip_path.is_file()
-    assert 'defaultServerBase: "http://192.168.1.20:8042"' in (package_dir / "config.js").read_text(
+    assert 'defaultServerBase: "https://192.168.10.205:8042"' in (package_dir / "config.js").read_text(
         encoding="utf-8"
     )
-    assert "http://192.168.1.20:8042" in (package_dir / "DEPLOYMENT.txt").read_text(encoding="utf-8")
+    assert 'defaultServerPort: "8042"' in (package_dir / "config.js").read_text(encoding="utf-8")
+    assert "https://192.168.10.205:8042" in (package_dir / "DEPLOYMENT.txt").read_text(encoding="utf-8")
     with zipfile.ZipFile(zip_path) as archive:
         names = set(archive.namelist())
     assert "booking_tms_checker_edge/manifest.json" in names
@@ -64,7 +75,7 @@ def test_booking_tms_extension_build_package_injects_server_base(tmp_path) -> No
 
 
 def test_booking_tms_extension_rejects_invalid_server_base() -> None:
-    for value in ["", "127.0.0.1:8042", "ftp://192.168.1.20", "http://host:8042?x=1"]:
+    for value in ["", "ftp://192.168.1.20", "http://host:8042?x=1"]:
         try:
             normalize_server_base(value)
         except ValueError:

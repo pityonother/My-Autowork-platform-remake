@@ -484,6 +484,27 @@ def _parse_per_box_expression(value: str) -> str | None:
     return _format_decimal(total)
 
 
+def _per_box_fallback_fix(values: dict[str, str]) -> BookingBodyFix | None:
+    min_package_number = _decimal(values.get("min_package", ""))
+    if min_package_number is not None and min_package_number > 0:
+        fixed = _format_decimal(min_package_number)
+        return BookingBodyFix(fixed, f"按 Min package 默认补为 {fixed}", "per_box_from_min_package")
+    quantity_number = _decimal(values.get("Quantity", ""))
+    if quantity_number is not None and quantity_number > 0:
+        fixed = _format_decimal(quantity_number)
+        return BookingBodyFix(fixed, f"Min package 为空，按 Quantity 默认补为 {fixed}", "per_box_from_quantity")
+    return None
+
+
+def _per_box_number_satisfies_rule(per_box_number: Decimal | None, min_package: str) -> bool:
+    if per_box_number is None or per_box_number <= 0:
+        return False
+    min_package_number = _decimal(min_package) if min_package else None
+    if min_package_number is None or min_package_number == 0:
+        return True
+    return per_box_number >= min_package_number and per_box_number % min_package_number == 0
+
+
 def _field_label(field_code: str) -> str:
     field = FIELDS_BY_CODE.get(field_code)
     return field.label if field else field_code
@@ -953,22 +974,25 @@ def _auto_fix_value(field_code: str, values: dict[str, str]) -> BookingBodyFix |
         if len(candidates) == 1 and candidates[0] != value:
             return BookingBodyFix(candidates[0], f"日期格式统一为 {candidates[0]}", "date_normalize", candidates)
     if field_code == "per_box":
+        fallback_fix = _per_box_fallback_fix(values)
         if _is_missing(value):
-            quantity_number = _decimal(values.get("Quantity", ""))
-            pkgs_number = _decimal(values.get("Pkgs", ""))
-            if quantity_number is not None and pkgs_number is not None and quantity_number > 0 and pkgs_number > 0:
-                fixed = _format_decimal(quantity_number / pkgs_number)
-                return BookingBodyFix(fixed, f"按 Quantity / Cartons 计算为 {fixed}", "per_box_from_quantity_cartons")
-            min_package_number = _decimal(values.get("min_package", ""))
-            if min_package_number is not None and min_package_number > 0:
-                fixed = _format_decimal(min_package_number)
-                return BookingBodyFix(fixed, f"按 Min package 默认补为 {fixed}", "per_box_from_min_package")
+            return fallback_fix
         parsed_expression = _parse_per_box_expression(value)
-        if parsed_expression is not None and parsed_expression != value:
+        if (
+            parsed_expression is not None
+            and parsed_expression != value
+            and _per_box_number_satisfies_rule(_decimal(parsed_expression), values.get("min_package", ""))
+        ):
             return BookingBodyFix(parsed_expression, f"表达式换算为 {parsed_expression}", "per_box_expression")
         calculated = _parse_simple_numeric_expression(value)
-        if calculated is not None and calculated != value:
+        if (
+            calculated is not None
+            and calculated != value
+            and _per_box_number_satisfies_rule(_decimal(calculated), values.get("min_package", ""))
+        ):
             return BookingBodyFix(calculated, f"算式计算为 {calculated}", "calculate_number")
+        if not _per_box_number_satisfies_rule(_decimal(value), values.get("min_package", "")):
+            return fallback_fix
     return None
 
 
