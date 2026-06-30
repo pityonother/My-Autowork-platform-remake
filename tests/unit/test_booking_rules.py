@@ -23,6 +23,32 @@ def test_booking_rule_registry_exposes_expected_suppliers() -> None:
     assert "VC_DZYQ" in get_supplier_names()
 
 
+def test_sil_fuca_keeps_customer_po_without_default_item_suffix(tmp_path) -> None:
+    source_path = tmp_path / "CCIXLS_sil_fuca.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "detail"
+    ws.append(
+        [
+            "Customer PO",
+            "Customer Part Number",
+            "HS Desc",
+            "Quantity",
+            "Net Weight",
+            "Gross Weight",
+            "CofO",
+            "MFR Name",
+        ]
+    )
+    ws.append(["T33U-26040113", "1010135800000", "IC", 20000, 1.2, 1.4, "CHINA", "TI"])
+    wb.save(source_path)
+
+    preview = build_booking_preview(session_id="sil-no-default-item", supplier="SIL-FUCA", source_path=source_path)
+
+    assert preview.can_generate
+    assert preview.rows[0]["订单号"] == "T33U-26040113"
+
+
 def test_supplier_specific_template_does_not_fallback_to_default(tmp_path) -> None:
     rule = SimpleNamespace(
         TEMPLATE_CANDIDATES=[tmp_path / "smooth booking template.xlsx"],

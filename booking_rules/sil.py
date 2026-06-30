@@ -17,7 +17,7 @@ DATA_START_ROW = 9
 DATA_END_ROW = 19
 
 COLUMN_MAP = {
-    "订单号": ("detail", "Customer PO", "suffix_0001"),
+    "订单号": ("detail", "Customer PO", "as_text"),
     "启益料号": ("detail", "Customer Part Number", "as_text"),
     "商品名称": ("detail", "HS Desc", None),
     "数量": ("detail", "Quantity", "as_number"),
