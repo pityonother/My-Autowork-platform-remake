@@ -310,11 +310,11 @@ def test_ufo_mail_settings_use_default_recipients(monkeypatch, tmp_path) -> None
     assert ufo_mail_store.get_ufo_mail_settings() == {
         "to_email": "cn.shzmaterialshippingimport2023@flex.com",
         "cc_email": "fexin@smooth-global.com",
-        "from_email": "",
+        "from_email": "op19@hkctwl.net",
     }
 
 
-def test_ufo_mail_settings_survive_db_initializer(monkeypatch, tmp_path) -> None:
+def test_ufo_mail_settings_are_fixed_even_after_save(monkeypatch, tmp_path) -> None:
     import ufo_mail_store
 
     monkeypatch.setattr(ufo_mail_store, "DB_PATH", tmp_path / "ufo_mail.db")
@@ -327,9 +327,9 @@ def test_ufo_mail_settings_survive_db_initializer(monkeypatch, tmp_path) -> None
     ufo_mail_store.init_ufo_db()
 
     assert ufo_mail_store.get_ufo_mail_settings() == {
-        "to_email": "to@example.com",
-        "cc_email": "cc@example.com",
-        "from_email": "from@example.com",
+        "to_email": "cn.shzmaterialshippingimport2023@flex.com",
+        "cc_email": "fexin@smooth-global.com",
+        "from_email": "op19@hkctwl.net",
     }
 
 
@@ -382,9 +382,9 @@ def test_ufo_config_package_roundtrips_settings_issues_and_signature_assets(monk
 
     assert result["summary"]["has_signature"] is True
     assert ufo_mail_store.get_ufo_mail_settings() == {
-        "to_email": "team@example.com",
-        "cc_email": "cc@example.com",
-        "from_email": "me@example.com",
+        "to_email": "cn.shzmaterialshippingimport2023@flex.com",
+        "cc_email": "fexin@smooth-global.com",
+        "from_email": "op19@hkctwl.net",
     }
     assert any(issue["short_en"] == "Test issue" for issue in ufo_mail_store.list_ufo_issues(include_inactive=True))
     signature = ufo_mail_store.get_ufo_signature_settings()

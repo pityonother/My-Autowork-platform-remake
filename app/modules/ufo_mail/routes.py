@@ -180,21 +180,22 @@ async def generate_ufo_mail(
     from_email: str = Form(default=""),
 ) -> Response:
     repository.save_ufo_mail_settings(to_email=to_email, cc_email=cc_email, from_email=from_email)
+    mail_settings = repository.get_ufo_mail_settings()
     form_state = build_form_state(
         issue_ids=issue_ids,
         ufo_no=ufo_no,
-        to_email=to_email,
-        cc_email=cc_email,
-        from_email=from_email,
+        to_email=mail_settings["to_email"],
+        cc_email=mail_settings["cc_email"],
+        from_email=mail_settings["from_email"],
     )
     try:
         output_path = generate_mail(
             issue_ids=issue_ids,
             attachments=attachments,
             ufo_no=ufo_no,
-            to_email=to_email,
-            cc_email=cc_email,
-            from_email=from_email,
+            to_email=mail_settings["to_email"],
+            cc_email=mail_settings["cc_email"],
+            from_email=mail_settings["from_email"],
         )
     except LowConfidenceReviewRequired as exc:
         return templates.TemplateResponse(
@@ -228,21 +229,22 @@ async def confirm_ufo_mail_low_confidence_review(
     from_email: str = Form(default=""),
 ) -> Response:
     repository.save_ufo_mail_settings(to_email=to_email, cc_email=cc_email, from_email=from_email)
+    mail_settings = repository.get_ufo_mail_settings()
     form_state = build_form_state(
         issue_ids=issue_ids,
         ufo_no=ufo_no,
-        to_email=to_email,
-        cc_email=cc_email,
-        from_email=from_email,
+        to_email=mail_settings["to_email"],
+        cc_email=mail_settings["cc_email"],
+        from_email=mail_settings["from_email"],
     )
     try:
         output_path = generate_mail_from_saved_session(
             session_id=session_id,
             issue_ids=issue_ids,
             ufo_no=ufo_no,
-            to_email=to_email,
-            cc_email=cc_email,
-            from_email=from_email,
+            to_email=mail_settings["to_email"],
+            cc_email=mail_settings["cc_email"],
+            from_email=mail_settings["from_email"],
             allow_low_confidence=True,
         )
     except Exception as exc:  # noqa: BLE001

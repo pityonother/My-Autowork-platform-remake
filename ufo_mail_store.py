@@ -28,6 +28,12 @@ UFO_CONFIG_MANIFEST_NAME = "manifest.json"
 UFO_CONFIG_SIGNATURE_PREFIX = "ufo_signature/"
 DEFAULT_UFO_TO_EMAIL = "cn.shzmaterialshippingimport2023@flex.com"
 DEFAULT_UFO_CC_EMAIL = "fexin@smooth-global.com"
+DEFAULT_UFO_FROM_EMAIL = "op19@hkctwl.net"
+FIXED_UFO_MAIL_SETTINGS = {
+    "to_email": DEFAULT_UFO_TO_EMAIL,
+    "cc_email": DEFAULT_UFO_CC_EMAIL,
+    "from_email": DEFAULT_UFO_FROM_EMAIL,
+}
 
 DEFAULT_ISSUES = [
     (
@@ -165,24 +171,13 @@ def clean_text(value: str | None) -> str:
 
 def get_ufo_mail_settings() -> dict[str, str]:
     init_ufo_db()
-    with get_connection() as conn:
-        rows = conn.execute("SELECT setting_key, setting_value FROM ufo_mail_settings").fetchall()
-    settings = {row["setting_key"]: row["setting_value"] for row in rows}
-    return {
-        "to_email": settings.get("to_email") or DEFAULT_UFO_TO_EMAIL,
-        "cc_email": settings.get("cc_email") or DEFAULT_UFO_CC_EMAIL,
-        "from_email": settings.get("from_email", ""),
-    }
+    return dict(FIXED_UFO_MAIL_SETTINGS)
 
 
 def save_ufo_mail_settings(*, to_email: str, cc_email: str, from_email: str) -> None:
     init_ufo_db()
     now = datetime.now().isoformat(timespec="seconds")
-    values = {
-        "to_email": clean_text(to_email),
-        "cc_email": clean_text(cc_email),
-        "from_email": clean_text(from_email),
-    }
+    values = dict(FIXED_UFO_MAIL_SETTINGS)
     with get_connection() as conn:
         conn.executemany(
             """
@@ -665,12 +660,13 @@ def generate_ufo_eml(mail_input: UfoMailInput, output_path: Path) -> str:
 
     message = EmailMessage(policy=SMTP)
     message["Subject"] = subject
-    if clean_text(mail_input.from_email):
-        message["From"] = clean_text(mail_input.from_email)
-    if clean_text(mail_input.to_email):
-        message["To"] = clean_text(mail_input.to_email)
-    if clean_text(mail_input.cc_email):
-        message["Cc"] = clean_text(mail_input.cc_email)
+    mail_settings = get_ufo_mail_settings()
+    if clean_text(mail_settings["from_email"]):
+        message["From"] = clean_text(mail_settings["from_email"])
+    if clean_text(mail_settings["to_email"]):
+        message["To"] = clean_text(mail_settings["to_email"])
+    if clean_text(mail_settings["cc_email"]):
+        message["Cc"] = clean_text(mail_settings["cc_email"])
     message.set_content(body)
     if signature["enabled"] and signature["html"]:
         message.set_content(f"{body}\r\n\r\n{signature['plain']}")
