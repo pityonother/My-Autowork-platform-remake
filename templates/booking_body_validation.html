@@ -420,10 +420,11 @@
                     <div>
                         <button class="screening-secondary-action" type="button">只导出报告</button>
                         {% if export_url %}
-                        <a class="screening-primary-action" href="{{ export_url }}" download>导出修正版</a>
-                        {% else %}
-                        <button class="screening-primary-action" type="submit" form="screening-export-form">确认并生成修正版</button>
+                        <a class="screening-secondary-action" href="{{ export_url }}" download>下载上次生成</a>
                         {% endif %}
+                        <button class="screening-primary-action" type="submit" form="screening-export-form">
+                            {% if export_url %}重新生成修正版{% else %}确认并生成修正版{% endif %}
+                        </button>
                     </div>
                 </footer>
                 {% else %}
@@ -503,6 +504,15 @@
     var confirmExportForm = document.querySelector('[data-confirm-export-form]');
     if (confirmExportForm) {
         confirmExportForm.addEventListener('submit', function () {
+            for (var dateIndex = 0; dateIndex < dateControls.length; dateIndex++) {
+                var control = dateControls[dateIndex];
+                var input = control.querySelector('[data-date-manual]');
+                var cell = control.closest('td');
+                var target = cell ? cell.querySelector('.screening-fixed-value') : null;
+                if (!target) continue;
+                var manualValue = input ? input.value.trim() : '';
+                target.value = manualValue || selectedAlgorithmValue(control);
+            }
             var payload = {};
             var inputs = document.querySelectorAll('[data-manual-input]');
             for (var inputIndex = 0; inputIndex < inputs.length; inputIndex++) {

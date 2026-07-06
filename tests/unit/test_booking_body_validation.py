@@ -809,7 +809,7 @@ def test_sil_fuca_background_refresh_task_can_start_and_stop(monkeypatch) -> Non
     asyncio.run(run_task_check())
 
 
-def test_booking_body_validation_sil_fuca_delivery_suggests_unique_po_sequence() -> None:
+def test_booking_body_validation_complete_po_warns_about_alternate_sequence_without_auto_fix() -> None:
     pn = "1010300202002T01"
     content = _workbook_bytes([_sil_fuca_row(po="T33U-26040025-0001", pn=pn, quantity=20000)])
     client = _FakeSilFucaDeliveryClient(
@@ -834,11 +834,14 @@ def test_booking_body_validation_sil_fuca_delivery_suggests_unique_po_sequence()
 
     row = preview.rows[0]
     assert client.all_call_count == 1
-    assert row.values["PO_No"] == "T33U-26040025-0002"
-    assert row.correction_kind_for("PO_No") == "sil_fuca_delivery_po"
-    assert "PO_No" in row.fixed_fields
-    assert "PO_No" in row.source_issue_fields
-    assert preview.issue_count == 0
+    assert row.values["PO_No"] == "T33U-26040025-0001"
+    assert row.delivery_match_status == "warning"
+    assert row.correction_kind_for("PO_No") == "sil_fuca_delivery_candidates"
+    assert row.correction_options_for("PO_No") == ("T33U-26040025-0002",)
+    assert "PO_No" not in row.fixed_fields
+    assert "ASN" in row.issue_fields
+    assert "ASN" in row.source_issue_fields
+    assert preview.issue_count == 1
     assert preview.source_issue_count == 1
 
     corrected = build_corrected_body_validation_workbook(
@@ -849,7 +852,18 @@ def test_booking_body_validation_sil_fuca_delivery_suggests_unique_po_sequence()
         query_date=date(2026, 6, 29),
     )
     wb = load_workbook(BytesIO(corrected))
-    assert wb[wb.sheetnames[0]]["C9"].value == "T33U-26040025-0002"
+    assert wb[wb.sheetnames[0]]["C9"].value == "T33U-26040025-0001"
+
+    manually_corrected = build_corrected_body_validation_workbook(
+        content,
+        filename="sil.xlsx",
+        enable_dynamic_checks=True,
+        sil_fuca_delivery_client=client,
+        query_date=date(2026, 6, 29),
+        manual_values={(9, "PO_No"): "T33U-26040025-0002"},
+    )
+    manual_wb = load_workbook(BytesIO(manually_corrected))
+    assert manual_wb[manual_wb.sheetnames[0]]["C9"].value == "T33U-26040025-0002"
 
 
 def test_booking_body_validation_incomplete_po_uses_all_delivery_list_candidates() -> None:
@@ -1048,6 +1062,7 @@ def test_booking_body_validation_export_downloads_corrected_workbook(monkeypatch
     assert export_response.status_code == 200
     match = re.search(r'href="([^"]*/modules/booking/body-validation/export/[^"]+)"', export_response.text)
     assert match
+    assert 'form="screening-export-form"' in export_response.text
 
     download = client.get(match.group(1))
     assert download.status_code == 200
@@ -1062,6 +1077,28 @@ def test_booking_body_validation_export_downloads_corrected_workbook(monkeypatch
     assert ws["N10"].value == datetime(2026, 3, 23)
     assert ws["N10"].number_format == "yyyy-mm-dd"
     assert str(ws["Y9"].value) == "4000"
+
+
+def test_booking_body_validation_manual_value_splits_merged_cell_when_exporting() -> None:
+    content = _workbook_bytes([_valid_row(), _valid_row()])
+    wb = load_workbook(BytesIO(content))
+    ws = wb[wb.sheetnames[0]]
+    ws["X9"].value = "1000"
+    ws.merge_cells("X9:X10")
+    buffer = BytesIO()
+    wb.save(buffer)
+
+    corrected = build_corrected_body_validation_workbook(
+        buffer.getvalue(),
+        filename="merged-manual.xlsx",
+        manual_values={(10, "min_package"): "2000"},
+    )
+
+    fixed_wb = load_workbook(BytesIO(corrected))
+    fixed_ws = fixed_wb[fixed_wb.sheetnames[0]]
+    assert "X9:X10" not in {str(item) for item in fixed_ws.merged_cells.ranges}
+    assert str(fixed_ws["X9"].value) == "1000"
+    assert str(fixed_ws["X10"].value) == "2000"
 
 
 def test_booking_body_validation_can_start_from_generated_booking_preview(monkeypatch, tmp_path) -> None:

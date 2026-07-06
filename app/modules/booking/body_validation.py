@@ -605,7 +605,7 @@ def _matching_delivery_record(
     for record in records:
         if record.po == query.po and record.product_code == query.pn:
             return record
-    return records[0] if records else None
+    return None
 
 
 def _delivery_record_problem(
@@ -749,6 +749,7 @@ def _apply_sil_fuca_delivery_checks(
         response: Any = None
 
         if group.is_complete_po:
+            response_errors: tuple[str, ...] = ()
             try:
                 response = client.get_delivery_list_new(query)
             except Exception as exc:  # noqa: BLE001
@@ -756,6 +757,7 @@ def _apply_sil_fuca_delivery_checks(
                 response = None
 
             if response is not None:
+                response_errors = tuple(getattr(response, "errors", ()) or ())
                 record = _matching_delivery_record(response.records, query)
                 if record is not None:
                     problem = _delivery_record_problem(record, query, query_date)
@@ -772,6 +774,76 @@ def _apply_sil_fuca_delivery_checks(
                     else:
                         _set_delivery_match(group, "ok", f"周期 {record.po} 匹配成功。")
                     continue
+
+            try:
+                records_for_group = _delivery_records_for_group(load_all_records(), group)
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(str(exc))
+                message = "；".join(response_errors) if response_errors else "完整 PO 周期查询失败，需人工确认。"
+                _set_delivery_match(group, "error", message)
+                _append_delivery_issue(
+                    group=group,
+                    field_code="ASN",
+                    message=message,
+                    issues=issues,
+                    source_issues=source_issues,
+                    correction_kind="sil_fuca_delivery_missing",
+                )
+                continue
+
+            candidate_records = _delivery_candidates(records_for_group, query, query_date)
+            if candidate_records:
+                options = tuple(record.po for record in candidate_records)
+                details = tuple(_delivery_record_detail(record, query, query_date) for record in candidate_records)
+                if len(candidate_records) == 1:
+                    message = (
+                        f"当前完整 PO {group.po} 未匹配成功；周期清单存在可用项次 {options[0]}，"
+                        "请人工确认后再修改 PO No.。"
+                    )
+                else:
+                    message = (
+                        f"当前完整 PO {group.po} 未匹配成功；周期清单存在多个可用项次："
+                        f"{'、'.join(options)}，请人工确认。"
+                    )
+                _set_delivery_match(group, "warning", message, options=details)
+                _append_delivery_issue(
+                    group=group,
+                    field_code="ASN",
+                    message=message,
+                    issues=issues,
+                    source_issues=source_issues,
+                    suggestion=options[0],
+                    correction_options=options,
+                    correction_kind="sil_fuca_delivery_candidates",
+                )
+                for row in group.rows:
+                    row.correction_options["PO_No"] = options
+                    row.correction_kinds["PO_No"] = "sil_fuca_delivery_candidates"
+                continue
+
+            if records_for_group:
+                details = tuple(_delivery_record_detail(record, query, query_date) for record in records_for_group)
+                message = (
+                    f"当前完整 PO {group.po} 未匹配成功；找到同 PO 基础号和 PN 的周期记录，"
+                    "但没有可用周期：" + "；".join(details)
+                )
+                _set_delivery_match(group, "error", message, options=details)
+            else:
+                message = (
+                    "；".join(response_errors)
+                    if response_errors
+                    else f"当前完整 PO {group.po} 匹配不上周期交货清单，请检查是否有上传。"
+                )
+                _set_delivery_match(group, "error", message)
+            _append_delivery_issue(
+                group=group,
+                field_code="ASN",
+                message=message,
+                issues=issues,
+                source_issues=source_issues,
+                correction_kind="sil_fuca_delivery_missing",
+            )
+            continue
 
         try:
             records_for_group = _delivery_records_for_group(load_all_records(), group)
@@ -1684,9 +1756,11 @@ def _apply_manual_values(rows: list[BookingBodyRow], manual_values: ManualBodyVa
         row = rows_by_excel_row.get(excel_row)
         if row is None or field_code not in FIELDS_BY_CODE:
             continue
+        original_value = row.values.get(field_code, "")
         row.values[field_code] = value
         row.fixed_fields.add(field_code)
-        row.correction_kinds[field_code] = row.correction_kinds.get(field_code) or "manual_confirmed"
+        if original_value != value or not row.correction_kinds.get(field_code):
+            row.correction_kinds[field_code] = "manual_confirmed"
 
 
 def build_corrected_body_validation_workbook(
@@ -1713,7 +1787,10 @@ def build_corrected_body_validation_workbook(
         for field in BODY_FIELDS:
             value = row.values.get(field.code, "")
             if field.code in row.fixed_fields or (field.code == "madeDate" and value and _valid_production_date(value)):
-                split_merged = row.correction_kind_for(field.code) == "weight_average_previous_line"
+                split_merged = row.correction_kind_for(field.code) in {
+                    "manual_confirmed",
+                    "weight_average_previous_line",
+                }
                 _write_corrected_cell(
                     ws,
                     f"{field.column_letter}{row.excel_row}",
