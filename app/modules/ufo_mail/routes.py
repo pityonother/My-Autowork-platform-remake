@@ -174,13 +174,15 @@ async def import_ufo_mail_config(request: Request, config_file: UploadFile = Fil
 @router.post("/modules/ufo-mail/generate", response_model=None)
 async def generate_ufo_mail(
     request: Request,
-    issue_ids: list[int] = Form(default=[]),
-    attachments: list[UploadFile] = File(default=[]),
+    issue_ids: list[int] | None = Form(default=None),
+    attachments: list[UploadFile] | None = File(default=None),
     ufo_no: str = Form(default=""),
     to_email: str = Form(default=""),
     cc_email: str = Form(default=""),
     from_email: str = Form(default=""),
 ) -> Response:
+    issue_ids = issue_ids or []
+    attachments = attachments or []
     repository.save_ufo_mail_settings(to_email=to_email, cc_email=cc_email, from_email=from_email)
     mail_settings = repository.get_ufo_mail_settings()
     form_state = build_form_state(
@@ -224,12 +226,13 @@ async def generate_ufo_mail(
 async def confirm_ufo_mail_low_confidence_review(
     request: Request,
     session_id: str = Form(...),
-    issue_ids: list[int] = Form(default=[]),
+    issue_ids: list[int] | None = Form(default=None),
     ufo_no: str = Form(default=""),
     to_email: str = Form(default=""),
     cc_email: str = Form(default=""),
     from_email: str = Form(default=""),
 ) -> Response:
+    issue_ids = issue_ids or []
     repository.save_ufo_mail_settings(to_email=to_email, cc_email=cc_email, from_email=from_email)
     mail_settings = repository.get_ufo_mail_settings()
     form_state = build_form_state(

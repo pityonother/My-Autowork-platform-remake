@@ -154,11 +154,18 @@ def _booking_preview_from_payload(payload: Any) -> BookingPreview | None:
         return None
 
 
+def _normalize_booking_preview(value: Any) -> BookingPreview | None:
+    if isinstance(value, BookingPreview):
+        return value
+    return _booking_preview_from_payload(_json_safe(value))
+
+
 def _booking_session_to_payload(data: dict[str, Any]) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     for key, value in data.items():
-        if key == "booking_preview" and isinstance(value, BookingPreview):
-            payload[key] = _booking_preview_to_payload(value)
+        if key == "booking_preview":
+            preview = _normalize_booking_preview(value)
+            payload[key] = _booking_preview_to_payload(preview) if preview is not None else _json_safe(value)
         else:
             payload[key] = _json_safe(value)
     return payload
@@ -624,9 +631,10 @@ async def preview_booking(
 
 def get_booking_preview(session_id: str) -> BookingPreview:
     session = get_booking_session(session_id)
-    preview = session.get("booking_preview")
-    if not isinstance(preview, BookingPreview):
+    preview = _normalize_booking_preview(session.get("booking_preview"))
+    if preview is None:
         raise HTTPException(status_code=404, detail="未找到 Booking 预览记录。")
+    session["booking_preview"] = preview
     return preview
 
 

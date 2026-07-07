@@ -7,7 +7,6 @@ from typing import Sequence
 from fastapi import UploadFile
 
 from app.core.paths import OUTPUT_DIR
-from app.modules.import_customs.legacy_adapter import reconcile_customs
 from app.shared.performance import timed_step
 from app.shared.state import SESSION_STORE
 from app.shared.uploads import save_upload
@@ -22,6 +21,8 @@ def build_import_customs_session(
     customs_bill_file: UploadFile | None,
     source_files: Sequence[UploadFile],
 ) -> str:
+    from app.modules.import_customs.legacy_adapter import reconcile_customs
+
     session_id = uuid.uuid4().hex[:12]
     order_management_path = (
         save_upload(session_id, order_management_file, "order_management", allowed_suffixes=SPREADSHEET_SUFFIXES)

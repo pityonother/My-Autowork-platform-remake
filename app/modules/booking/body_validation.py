@@ -1,13 +1,39 @@
 from __future__ import annotations
 
 import re
-import ast
-from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Any
 
+from app.modules.booking.body_validation_models import (
+    BookingBodyFix,
+    BookingBodyIssue,
+    BookingBodyRow,
+    BookingBodyValidationPreview,
+    _field_label,
+    _issue,
+    _source_issue,
+)
+from app.modules.booking.body_validation_numeric import (
+    _decimal,
+    _format_decimal,
+    _normalize_numeric_text,
+    _parse_per_box_expression,
+    _parse_simple_numeric_expression,
+    _per_box_number_satisfies_rule,
+)
+from app.modules.booking.body_validation_delivery import (
+    _SilFucaDeliveryGroup,
+    _delivery_candidates,
+    _delivery_record_detail,
+    _delivery_record_problem,
+    _delivery_records_for_group,
+    _matching_delivery_record,
+    _sil_fuca_delivery_groups,
+    _valid_po_base,
+    _valid_po_no,
+)
 from app.modules.booking.sil_fuca_delivery import (
     SilFucaDeliveryClient,
     SilFucaDeliveryQuery,
@@ -21,118 +47,26 @@ from app.modules.booking.body_validation_fields import (
     INTEGER_FIELDS,
     POSITIVE_WEIGHT_PO_PREFIXES,
     REQUIRED_FIELDS,
-    SIL_FUCA_DYNAMIC_PO_PREFIXES,
     SPECIAL_COUNTRY_KEYS,
     UNIT_NORMALIZABLE_NUMERIC_FIELDS,
     WEIGHT_AVERAGE_SCALE,
-    BookingBodyField,
 )
-from app.modules.booking.legacy_adapter import _country_lookup_key, load_country_abbr_lookup
 from app.shared.lazy_imports import lazy_module
 
 
 openpyxl = lazy_module("openpyxl")
 
 
-@dataclass
-class BookingBodyIssue:
-    row_number: int | None
-    field_code: str
-    field_label: str
-    message: str
-    suggestion: str = ""
-    correction_options: tuple[str, ...] = ()
-    correction_kind: str = ""
+def _country_lookup_key(value: str) -> str:
+    from app.modules.booking.legacy_adapter import _country_lookup_key as legacy_country_lookup_key
+
+    return legacy_country_lookup_key(value)
 
 
-@dataclass(frozen=True)
-class BookingBodyFix:
-    value: str
-    suggestion: str = ""
-    kind: str = ""
-    options: tuple[str, ...] = ()
+def load_country_abbr_lookup() -> tuple[dict[str, str], str]:
+    from app.modules.booking.legacy_adapter import load_country_abbr_lookup as legacy_load_country_abbr_lookup
 
-
-@dataclass
-class BookingBodyRow:
-    excel_row: int
-    values: dict[str, str]
-    source_values: dict[str, str] = field(default_factory=dict)
-    cell_formats: dict[str, str] = field(default_factory=dict)
-    date_cells: set[str] = field(default_factory=set)
-    issue_fields: set[str] = field(default_factory=set)
-    fixed_fields: set[str] = field(default_factory=set)
-    source_issue_fields: set[str] = field(default_factory=set)
-    issue_messages: dict[str, list[str]] = field(default_factory=dict)
-    source_issue_messages: dict[str, list[str]] = field(default_factory=dict)
-    correction_options: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    correction_kinds: dict[str, str] = field(default_factory=dict)
-    delivery_match_status: str = ""
-    delivery_match_message: str = ""
-    delivery_match_options: tuple[str, ...] = ()
-
-    def issue_text(self, field_code: str) -> str:
-        return "；".join(self.issue_messages.get(field_code, []))
-
-    def source_issue_text(self, field_code: str) -> str:
-        return "；".join(self.source_issue_messages.get(field_code, []))
-
-    def correction_options_for(self, field_code: str) -> tuple[str, ...]:
-        return self.correction_options.get(field_code, ())
-
-    def correction_kind_for(self, field_code: str) -> str:
-        return self.correction_kinds.get(field_code, "")
-
-
-@dataclass
-class BookingBodyValidationPreview:
-    filename: str
-    rows: list[BookingBodyRow]
-    issues: list[BookingBodyIssue]
-    fields: list[BookingBodyField]
-    applied_fixes: bool = False
-    fix_count: int = 0
-    purchaser: str = ""
-    warnings: list[str] = field(default_factory=list)
-    source_issues: list[BookingBodyIssue] = field(default_factory=list)
-
-    @property
-    def row_count(self) -> int:
-        return len(self.rows)
-
-    @property
-    def issue_count(self) -> int:
-        return len(self.issues)
-
-    @property
-    def source_issue_count(self) -> int:
-        return len(self.source_issues)
-
-    @property
-    def display_issues(self) -> list[BookingBodyIssue]:
-        def issue_priority(issue: BookingBodyIssue) -> tuple[int, int, str]:
-            if issue.correction_kind == "date_choice":
-                priority = 0
-            elif not issue.correction_kind:
-                priority = 1
-            else:
-                priority = 2
-            return (priority, issue.row_number or 999999, issue.field_code)
-
-        issues = self.source_issues if self.applied_fixes and self.source_issues else self.issues
-        return sorted(issues, key=issue_priority)
-
-    @property
-    def display_issue_count(self) -> int:
-        return len(self.display_issues)
-
-    @property
-    def blocking_row_count(self) -> int:
-        return len({issue.row_number for issue in self.issues if issue.row_number is not None})
-
-    @property
-    def display_blocking_row_count(self) -> int:
-        return len({issue.row_number for issue in self.display_issues if issue.row_number is not None})
+    return legacy_load_country_abbr_lookup()
 
 
 AMBIGUOUS_NA_CASE_MANUAL_FIELDS = {
@@ -145,16 +79,6 @@ AMBIGUOUS_NA_CASE_MANUAL_FIELDS = {
     "madeDate",
     "min_package",
 }
-
-
-@dataclass
-class _SilFucaDeliveryGroup:
-    po: str
-    po_base: str
-    is_complete_po: bool
-    pn: str
-    quantity: Decimal
-    rows: list[BookingBodyRow] = field(default_factory=list)
 
 
 def _valid_excel_date_number_format(number_format: str) -> bool:
@@ -234,77 +158,9 @@ def _is_missing(value: str) -> bool:
     return value != "0" and not value
 
 
-def _decimal(value: str) -> Decimal | None:
-    try:
-        return Decimal(str(value).replace(",", ""))
-    except InvalidOperation:
-        return None
-
-
-def _format_decimal(value: Decimal) -> str:
-    if value == value.to_integral_value():
-        return f"{value:.0f}"
-    return format(value, "f").rstrip("0").rstrip(".")
-
-
 def _is_no_value(value: str, *, include_zero: bool = False) -> bool:
     normalized = (value or "").strip().upper()
     return not normalized or normalized == "NA" or (include_zero and normalized == "0")
-
-
-def _normalize_numeric_text(value: str) -> str | None:
-    raw = (value or "").strip()
-    if not raw or raw.upper() in {"NA", "NAN"}:
-        return None
-    normalized = re.sub(r"\s+", "", raw.upper().replace(",", ""))
-    match = re.fullmatch(
-        r"([+-]?\d+(?:\.\d+)?)(箱|件|PCS?|PICES?|CARTONS?|CTNS?|PALLETS?|PLTS?|KGS?|CBM)?",
-        normalized,
-    )
-    if not match:
-        return None
-    return _format_decimal(Decimal(match.group(1)))
-
-
-def _decimal_from_number_node(node: ast.AST) -> Decimal | None:
-    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-        return Decimal(str(node.value))
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
-        operand = _decimal_from_number_node(node.operand)
-        if operand is None:
-            return None
-        return operand if isinstance(node.op, ast.UAdd) else -operand
-    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div)):
-        left = _decimal_from_number_node(node.left)
-        right = _decimal_from_number_node(node.right)
-        if left is None or right is None:
-            return None
-        if isinstance(node.op, ast.Add):
-            return left + right
-        if isinstance(node.op, ast.Sub):
-            return left - right
-        if isinstance(node.op, ast.Mult):
-            return left * right
-        if right == 0:
-            return None
-        return left / right
-    return None
-
-
-def _parse_simple_numeric_expression(value: str) -> str | None:
-    expression = re.sub(r"\s+", "", (value or "").replace(",", "").replace("×", "*"))
-    if not expression or not any(operator in expression for operator in "+-*/()"):
-        return None
-    if not re.fullmatch(r"[0-9+\-*/().]+", expression):
-        return None
-    try:
-        parsed = ast.parse(expression, mode="eval")
-    except SyntaxError:
-        return None
-    result = _decimal_from_number_node(parsed.body)
-    if result is None or result <= 0:
-        return None
-    return _format_decimal(result)
 
 
 def _suggest_po_no(value: str) -> str | None:
@@ -370,37 +226,6 @@ def _extract_week_code_candidate(value: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _parse_per_box_expression(value: str) -> str | None:
-    raw = re.sub(r"\s+", "", value.upper().replace(",", ""))
-    has_expression_signal = any(part in raw for part in ("K", "CARTON", "CTN", "+", "*"))
-    if not raw or not has_expression_signal:
-        return None
-
-    expression = raw.replace("×", "*")
-    expression = re.sub(r"CARTONS?|CTNS?", "", expression)
-    if not re.fullmatch(r"[0-9K+*.]+", expression):
-        return None
-
-    total = Decimal("0")
-    for term in expression.split("+"):
-        if not term:
-            return None
-        product = Decimal("1")
-        for factor in term.split("*"):
-            factor_match = re.fullmatch(r"(\d+(?:\.\d+)?)(K?)", factor)
-            if not factor_match:
-                return None
-            number = Decimal(factor_match.group(1))
-            if factor_match.group(2):
-                number *= Decimal("1000")
-            product *= number
-        total += product
-
-    if total <= 0:
-        return None
-    return _format_decimal(total)
-
-
 def _per_box_fallback_fix(values: dict[str, str]) -> BookingBodyFix | None:
     min_package_number = _decimal(values.get("min_package", ""))
     if min_package_number is not None and min_package_number > 0:
@@ -411,185 +236,6 @@ def _per_box_fallback_fix(values: dict[str, str]) -> BookingBodyFix | None:
         fixed = _format_decimal(quantity_number)
         return BookingBodyFix(fixed, f"Min package 为空，按 Quantity 默认补为 {fixed}", "per_box_from_quantity")
     return None
-
-
-def _per_box_number_satisfies_rule(per_box_number: Decimal | None, min_package: str) -> bool:
-    if per_box_number is None or per_box_number <= 0:
-        return False
-    min_package_number = _decimal(min_package) if min_package else None
-    if min_package_number is None or min_package_number == 0:
-        return True
-    return per_box_number >= min_package_number and per_box_number % min_package_number == 0
-
-
-def _field_label(field_code: str) -> str:
-    field = FIELDS_BY_CODE.get(field_code)
-    return field.label if field else field_code
-
-
-def _issue(
-    row: BookingBodyRow | None,
-    field_code: str,
-    message: str,
-    suggestion: str = "",
-    *,
-    correction_options: tuple[str, ...] = (),
-    correction_kind: str = "",
-) -> BookingBodyIssue:
-    if row is not None and field_code:
-        row.issue_fields.add(field_code)
-        row.issue_messages.setdefault(field_code, []).append(message)
-    return BookingBodyIssue(
-        row_number=row.excel_row if row is not None else None,
-        field_code=field_code,
-        field_label=_field_label(field_code),
-        message=message,
-        suggestion=suggestion,
-        correction_options=correction_options,
-        correction_kind=correction_kind,
-    )
-
-
-def _source_issue(
-    row: BookingBodyRow,
-    field_code: str,
-    message: str,
-    suggestion: str = "",
-    *,
-    correction_options: tuple[str, ...] = (),
-    correction_kind: str = "",
-) -> BookingBodyIssue:
-    row.source_issue_fields.add(field_code)
-    row.source_issue_messages.setdefault(field_code, []).append(message)
-    return BookingBodyIssue(
-        row_number=row.excel_row,
-        field_code=field_code,
-        field_label=_field_label(field_code),
-        message=message,
-        suggestion=suggestion,
-        correction_options=correction_options,
-        correction_kind=correction_kind,
-    )
-
-
-def _po_base(value: str) -> str:
-    parts = (value or "").upper().split("-")
-    if len(parts) < 2 or not parts[0] or not parts[1]:
-        return ""
-    return f"{parts[0]}-{parts[1]}"
-
-
-def _valid_po_base(value: str) -> bool:
-    parts = (value or "").upper().split("-")
-    return len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 8 and parts[1].isdigit()
-
-
-def _sil_fuca_delivery_groups(rows: list[BookingBodyRow]) -> list[_SilFucaDeliveryGroup]:
-    groups: dict[tuple[str, str, bool], _SilFucaDeliveryGroup] = {}
-    for row in rows:
-        po = row.values.get("PO_No", "").upper()
-        pn = row.values.get("Customer_Part_No", "").upper()
-        quantity = _decimal(row.values.get("Quantity", ""))
-        is_complete_po = _valid_po_no(po)
-        po_base = _po_base(po)
-        if (
-            not (is_complete_po or _valid_po_base(po))
-            or not po_base
-            or po_base[:4] not in SIL_FUCA_DYNAMIC_PO_PREFIXES
-            or not pn
-            or quantity is None
-            or quantity <= 0
-        ):
-            continue
-        key = (po if is_complete_po else po_base, pn, is_complete_po)
-        if key not in groups:
-            groups[key] = _SilFucaDeliveryGroup(
-                po=po if is_complete_po else po_base,
-                po_base=po_base,
-                is_complete_po=is_complete_po,
-                pn=pn,
-                quantity=Decimal("0"),
-            )
-        groups[key].quantity += quantity
-        groups[key].rows.append(row)
-    return list(groups.values())
-
-
-def _matching_delivery_record(
-    records: tuple[SilFucaDeliveryRecord, ...],
-    query: SilFucaDeliveryQuery,
-) -> SilFucaDeliveryRecord | None:
-    for record in records:
-        if record.po == query.po and record.product_code == query.pn:
-            return record
-    return None
-
-
-def _delivery_record_problem(
-    record: SilFucaDeliveryRecord,
-    query: SilFucaDeliveryQuery,
-    query_date: date,
-) -> tuple[str, str] | None:
-    if record.allocation_status == "已分配并使用":
-        return "ASN", f"周期 {record.po} 已分配并使用。"
-    if record.delivery_quantity is None:
-        return "ASN", "周期清单接口没有返回 delivery_quantity，需人工确认。"
-    if query.qty > record.delivery_quantity:
-        return (
-            "ASN",
-            f"周期 {record.po} 数量不足：booking 合计 {_format_decimal(query.qty)} "
-            f"> 周期数量 {_format_decimal(record.delivery_quantity)}。",
-        )
-    if record.delivery_date is None:
-        return "ASN", "周期清单接口没有返回 delivery_date，需人工确认。"
-    if query_date >= record.delivery_date:
-        return (
-            "ASN",
-            f"周期 {record.po} 交货日期 {record.delivery_date:%Y-%m-%d} 不晚于当前查询日期 {query_date:%Y-%m-%d}。",
-        )
-    return None
-
-
-def _delivery_record_detail(record: SilFucaDeliveryRecord, query: SilFucaDeliveryQuery, query_date: date) -> str:
-    problem = _delivery_record_problem(record, query, query_date)
-    status = "可用" if problem is None else problem[1]
-    qty = _format_decimal(record.delivery_quantity) if record.delivery_quantity is not None else "未知"
-    delivery_date = record.delivery_date.strftime("%Y-%m-%d") if record.delivery_date else "未知"
-    allocation_status = record.allocation_status or "未使用"
-    return f"{record.po}｜数量 {qty}｜日期 {delivery_date}｜{allocation_status}｜{status}"
-
-
-def _delivery_candidates(
-    records: tuple[SilFucaDeliveryRecord, ...],
-    query: SilFucaDeliveryQuery,
-    query_date: date,
-) -> tuple[SilFucaDeliveryRecord, ...]:
-    base = _po_base(query.po)
-    candidates = [
-        record
-        for record in records
-        if _po_base(record.po) == base
-        and record.product_code == query.pn
-        and _delivery_record_problem(record, query, query_date) is None
-    ]
-    return tuple(sorted(candidates, key=lambda item: item.po))
-
-
-def _delivery_records_for_group(
-    records: tuple[SilFucaDeliveryRecord, ...],
-    group: _SilFucaDeliveryGroup,
-) -> tuple[SilFucaDeliveryRecord, ...]:
-    return tuple(
-        sorted(
-            (
-                record
-                for record in records
-                if _po_base(record.po) == group.po_base and record.product_code == group.pn
-            ),
-            key=lambda item: item.po,
-        )
-    )
-
 
 def _set_delivery_match(
     group: _SilFucaDeliveryGroup,
@@ -843,18 +489,6 @@ def _valid_delivery_note(value: str) -> bool:
     if last10[0] != "-" or last10[7] != "-":
         return False
     return bool(re.fullmatch(r"\d{8}", last10[1:7] + last10[8:]))
-
-
-def _valid_po_no(value: str) -> bool:
-    parts = value.split("-")
-    return (
-        len(parts) == 3
-        and len(parts[0]) == 4
-        and len(parts[1]) == 8
-        and parts[1].isdigit()
-        and len(parts[2]) == 4
-        and parts[2].isdigit()
-    )
 
 
 def _country_keys() -> tuple[set[str], str]:

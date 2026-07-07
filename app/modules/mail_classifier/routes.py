@@ -141,12 +141,12 @@ async def sync_mail_classifier(
 async def update_mail_classifier_message_labels(
     request: Request,
     message_id: int,
-    business_labels: list[str] = Form(default=[]),
+    business_labels: list[str] | None = Form(default=None),
     status_label: str = Form(default="needs_review"),
 ) -> RedirectResponse:
     repository.update_mail_message_labels(
         message_id,
-        business_labels=business_labels,
+        business_labels=business_labels or [],
         status_label=status_label,
     )
     return RedirectResponse(url=request.headers.get("referer", "/modules/mail-classifier"), status_code=303)

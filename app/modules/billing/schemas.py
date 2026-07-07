@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from app.modules.billing.legacy_adapter import ReconcileOutput
+from typing import Any
+
+
+ReconcileOutput = Any
 
 
 __all__ = ["ReconcileOutput"]

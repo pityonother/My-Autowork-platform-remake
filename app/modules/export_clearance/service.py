@@ -9,7 +9,6 @@ from fastapi import UploadFile
 
 from app.shared.performance import timed_step
 from app.shared.uploads import save_upload
-from app.modules.export_clearance.legacy_adapter import ExportClearanceImportInput, import_export_clearance_batch
 
 
 SPREADSHEET_SUFFIXES = {".xls", ".xlsx", ".xlsm"}
@@ -23,6 +22,8 @@ def import_clearance_batch(
     trip_sequence: int,
     source_files: Sequence[UploadFile],
 ) -> dict:
+    from app.modules.export_clearance.legacy_adapter import ExportClearanceImportInput, import_export_clearance_batch
+
     session_id = uuid.uuid4().hex[:12]
     source_paths: list[Path] = [
         save_upload(session_id, item, f"export_source_{idx:03d}", allowed_suffixes=SPREADSHEET_SUFFIXES)

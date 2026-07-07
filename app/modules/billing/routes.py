@@ -5,8 +5,8 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
-from app.modules.billing.legacy_adapter import ReconcileOutput, slt_sort_key
-from app.modules.billing.service import build_billing_session, get_sorted_invoice_previews
+from app.modules.billing.schemas import ReconcileOutput
+from app.modules.billing.service import build_billing_session, get_sorted_invoice_previews, slt_sort_key
 from app.shared.state import SESSION_STORE
 from app.web.templates import templates
 
@@ -36,16 +36,16 @@ async def billing_import_page(request: Request) -> HTMLResponse:
 async def process_files(
     request: Request,
     master_file: UploadFile | None = File(default=None),
-    invoice_files: list[UploadFile] = File(default=[]),
-    delivery_note_files: list[UploadFile] = File(default=[]),
-    source_files: list[UploadFile] = File(default=[]),
+    invoice_files: list[UploadFile] | None = File(default=None),
+    delivery_note_files: list[UploadFile] | None = File(default=None),
+    source_files: list[UploadFile] | None = File(default=None),
 ):
     try:
         session_id = build_billing_session(
             master_file=master_file,
-            invoice_files=invoice_files,
-            delivery_note_files=delivery_note_files,
-            source_files=source_files,
+            invoice_files=invoice_files or [],
+            delivery_note_files=delivery_note_files or [],
+            source_files=source_files or [],
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

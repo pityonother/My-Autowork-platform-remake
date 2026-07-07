@@ -15,13 +15,8 @@ from fastapi import UploadFile
 from app.core.paths import APP_DIR, OUTPUT_DIR, RUNTIME_DIR, UPLOAD_DIR
 from app.modules.ufo_mail.cover_processor import is_supported_ufo_document
 from app.modules.ufo_mail.rules import detect_ufo_no
+from app.modules.ufo_mail.schemas import UfoAttachment, UfoMailInput
 from app.shared.uploads import save_upload
-from app.modules.ufo_mail.legacy_adapter import (
-    UfoAttachment,
-    UfoMailInput,
-    generate_ufo_eml,
-    import_ufo_signature_from_eml,
-)
 
 
 YOLO_PYTHON_CANDIDATES = [
@@ -29,6 +24,20 @@ YOLO_PYTHON_CANDIDATES = [
     APP_DIR / ".venv-yolo" / "bin" / "python",
 ]
 ATTACHMENT_METADATA_FILENAME = "_ufo_attachments.json"
+
+
+def generate_ufo_eml(mail_input: UfoMailInput, output_path: Path) -> str:
+    from app.modules.ufo_mail.legacy_adapter import generate_ufo_eml as legacy_generate_ufo_eml
+
+    return legacy_generate_ufo_eml(mail_input, output_path)
+
+
+def import_ufo_signature_from_eml(path: Path, *, source_name: str, marker: str) -> dict:
+    from app.modules.ufo_mail.legacy_adapter import (
+        import_ufo_signature_from_eml as legacy_import_ufo_signature_from_eml,
+    )
+
+    return legacy_import_ufo_signature_from_eml(path, source_name=source_name, marker=marker)
 
 
 class LowConfidenceReviewRequired(ValueError):
@@ -59,6 +68,15 @@ def unique_filename(filename: str, used_names: set[str]) -> str:
         index += 1
     used_names.add(candidate.lower())
     return candidate
+
+
+def make_ufo_attachment_like(template: object | None, *, path: Path, filename: str) -> UfoAttachment:
+    if template is not None:
+        try:
+            return type(template)(path=path, filename=filename)
+        except TypeError:
+            pass
+    return UfoAttachment(path=path, filename=filename)
 
 
 def resolve_yolo_python() -> Path:
@@ -226,12 +244,11 @@ def prepare_ufo_attachments(
 
     for attachment in saved_attachments:
         if not is_supported_ufo_document(attachment.path):
-            prepared.append(
-                UfoAttachment(
-                    path=attachment.path,
-                    filename=unique_filename(attachment.filename, used_names),
-                )
-            )
+            output_filename = unique_filename(attachment.filename, used_names)
+            if output_filename == attachment.filename:
+                prepared.append(attachment)
+            else:
+                prepared.append(make_ufo_attachment_like(attachment, path=attachment.path, filename=output_filename))
             continue
 
         if has_pdf_document and attachment.path.suffix.lower() in {".tif", ".tiff"}:
@@ -257,7 +274,7 @@ def prepare_ufo_attachments(
         review_count = int(result.get("review_count") or 0)
         if review_count:
             review_reports.append(str(report_csv))
-        prepared.append(UfoAttachment(path=output_pdf, filename=output_filename))
+        prepared.append(make_ufo_attachment_like(attachment, path=output_pdf, filename=output_filename))
 
     if review_reports and not allow_low_confidence:
         raise LowConfidenceReviewRequired(session_id=session_id, review_reports=review_reports)

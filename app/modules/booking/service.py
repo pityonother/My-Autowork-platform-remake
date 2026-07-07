@@ -11,13 +11,7 @@ from app.modules.booking.mail_builder import generate_flex_texas_booking_reply_e
 from app.shared.performance import timed_step
 from app.shared.uploads import save_upload
 from app.modules.booking.rules.registry import SUPPLIER_RULES
-from app.modules.booking.legacy_adapter import (
-    BookingPreview,
-    available_suppliers as available_suppliers,
-    build_booking_preview,
-    extract_booking_attachments_from_eml,
-    write_booking_workbook,
-)
+from app.modules.booking.schemas import BookingPreview
 
 
 class BookingInputError(ValueError):
@@ -50,6 +44,12 @@ def eml_pdf_suppliers() -> set[str]:
     }
 
 
+def available_suppliers() -> list[str]:
+    from app.modules.booking.legacy_adapter import available_suppliers as legacy_available_suppliers
+
+    return legacy_available_suppliers()
+
+
 def build_preview_session(
     *,
     supplier: str,
@@ -57,6 +57,8 @@ def build_preview_session(
     source_file: UploadFile | None,
     packadc_file: UploadFile | None,
 ) -> BookingPreviewSession:
+    from app.modules.booking.legacy_adapter import build_booking_preview, extract_booking_attachments_from_eml
+
     session_id = uuid.uuid4().hex[:12]
     warnings: list[str] = []
     email_subject = ""
@@ -98,6 +100,8 @@ def build_preview_session(
 
 
 def write_booking_output(preview: BookingPreview) -> Path:
+    from app.modules.booking.legacy_adapter import write_booking_workbook
+
     with timed_step("booking.write_workbook"):
         return write_booking_workbook(preview, OUTPUT_DIR)
 

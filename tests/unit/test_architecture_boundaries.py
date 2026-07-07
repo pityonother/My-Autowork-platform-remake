@@ -134,6 +134,61 @@ def test_legacy_imports_are_isolated_to_legacy_adapters() -> None:
     assert violations == []
 
 
+def test_runtime_entrypoints_do_not_import_top_level_legacy_stores() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    legacy_modules = {
+        "dispatch_mail_store",
+        "export_clearance_store",
+        "finance_store",
+        "mail_classifier_store",
+        "ufo_mail_store",
+    }
+    entrypoints = [project_root / "reconcile_web_app.py", *(project_root / "module_entrypoints").glob("*.py")]
+    violations: list[str] = []
+    for path in entrypoints:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module in legacy_modules:
+                violations.append(f"{path.relative_to(project_root).as_posix()}:{node.module}")
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name in legacy_modules:
+                        violations.append(f"{path.relative_to(project_root).as_posix()}:{alias.name}")
+    assert violations == []
+
+
+def test_main_app_import_does_not_load_top_level_legacy_modules() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    legacy_modules = [
+        "booking_store",
+        "customs_reconciler",
+        "dispatch_mail_store",
+        "export_clearance_store",
+        "finance_store",
+        "invoice_reconciler",
+        "mail_classifier_store",
+        "ufo_mail_store",
+    ]
+    script = (
+        "import sys; "
+        f"legacy = {legacy_modules!r}; "
+        "baseline = {name for name in legacy if name in sys.modules}; "
+        "import reconcile_web_app; "
+        "loaded_after = {name for name in legacy if name in sys.modules}; "
+        "newly_loaded = sorted(loaded_after - baseline); "
+        "print('\\n'.join(newly_loaded)); "
+        "raise SystemExit(1 if newly_loaded else 0)"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=project_root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
 def test_routes_use_shared_template_object() -> None:
     project_root = Path(__file__).resolve().parents[2]
     violations = [

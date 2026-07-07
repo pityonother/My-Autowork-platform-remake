@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import uuid
-from typing import Sequence
+from typing import Any, Sequence
 
 from fastapi import UploadFile
 
 from app.core.paths import OUTPUT_DIR
-from app.modules.billing.legacy_adapter import ReconcileOutput, reconcile, slt_sort_key
 from app.shared.state import SESSION_STORE
 from app.shared.uploads import save_upload
 
 
 SPREADSHEET_SUFFIXES = {".xls", ".xlsx", ".xlsm"}
 DOCUMENT_SUFFIXES = SPREADSHEET_SUFFIXES | {".pdf"}
+
+
+def slt_sort_key(value: str) -> tuple:
+    from app.modules.billing.legacy_adapter import slt_sort_key as legacy_slt_sort_key
+
+    return legacy_slt_sort_key(value)
 
 
 def build_billing_session(
@@ -22,6 +27,8 @@ def build_billing_session(
     delivery_note_files: Sequence[UploadFile],
     source_files: Sequence[UploadFile],
 ) -> str:
+    from app.modules.billing.legacy_adapter import reconcile
+
     session_id = uuid.uuid4().hex[:12]
     master_path = (
         save_upload(session_id, master_file, "master", allowed_suffixes=SPREADSHEET_SUFFIXES)
@@ -65,7 +72,7 @@ def build_billing_session(
 
 
 def get_sorted_invoice_previews(session: dict) -> list[dict]:
-    result: ReconcileOutput | None = session.get("result")
+    result: Any | None = session.get("result")
     if not result:
         return []
     return sorted(

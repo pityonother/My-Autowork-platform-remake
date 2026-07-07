@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from app.modules.import_customs.legacy_adapter import CustomsOutput
+from typing import Any
+
+
+CustomsOutput = Any
 
 
 __all__ = ["CustomsOutput"]

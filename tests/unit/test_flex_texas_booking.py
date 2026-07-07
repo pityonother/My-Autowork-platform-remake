@@ -33,6 +33,7 @@ from app.modules.booking.flex_texas import (
 )
 from app.modules.booking.mail_builder import generate_flex_texas_booking_reply_eml
 from app.modules.booking.rules.registry import get_supplier_names
+from booking_store import BookingPreview as LegacyBookingPreview
 from booking_store import build_booking_preview, write_booking_workbook
 
 
@@ -367,6 +368,33 @@ def test_booking_xlsx_download_restores_persisted_session(monkeypatch, tmp_path:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     assert "attachment;" in response.headers["content-disposition"]
+    assert response.content.startswith(b"PK")
+
+
+def test_booking_xlsx_download_accepts_legacy_preview_in_memory(monkeypatch, tmp_path: Path) -> None:
+    client = TestClient(booking_app)
+    session_id = "legacy-preview-route"
+    output_path = tmp_path / "booking.xlsx"
+    output_path.write_bytes(b"PK\x03\x04legacy-preview-xlsx")
+    legacy_preview = LegacyBookingPreview(
+        session_id=session_id,
+        supplier="FLEX-TEXAS",
+        source_filename="source.eml",
+        pack_filename="source.pdf",
+        rows=[{"P/N": "TEST"}],
+        columns=["P/N"],
+    )
+    booking_routes.SESSION_STORE[session_id] = {"booking_preview": legacy_preview}
+
+    def fake_write(restored_preview: BookingPreview) -> Path:
+        assert isinstance(restored_preview, BookingPreview)
+        return output_path
+
+    monkeypatch.setattr(booking_routes, "write_booking_output", fake_write)
+
+    response = client.get(f"/modules/booking/generate/{session_id}")
+
+    assert response.status_code == 200
     assert response.content.startswith(b"PK")
 
 

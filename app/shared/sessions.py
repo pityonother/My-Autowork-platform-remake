@@ -11,6 +11,7 @@ class SessionStore(MutableMapping[str, dict[str, Any]]):
     def __init__(self) -> None:
         self._items: dict[str, dict[str, Any]] = {}
         self._metadata: dict[str, dict[str, datetime]] = {}
+        self._last_cleanup_at = datetime.min.replace(tzinfo=timezone.utc)
 
     def __getitem__(self, key: str) -> dict[str, Any]:
         self._metadata.setdefault(key, self._new_metadata())["last_accessed_at"] = self._now()
@@ -55,6 +56,13 @@ class SessionStore(MutableMapping[str, dict[str, Any]]):
             self._items.pop(session_id, None)
             self._metadata.pop(session_id, None)
         return expired
+
+    def cleanup_if_due(self, *, max_age_hours: int = 24, interval_minutes: int = 15) -> list[str]:
+        now = self._now()
+        if now - self._last_cleanup_at < timedelta(minutes=interval_minutes):
+            return []
+        self._last_cleanup_at = now
+        return self.cleanup(max_age_hours=max_age_hours)
 
     def get_required(self, session_id: str, detail: str = "未找到这次导入记录。") -> dict[str, Any]:
         if session_id not in self._items or not self._items[session_id]:

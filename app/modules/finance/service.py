@@ -10,13 +10,14 @@ from app.modules.finance import exports, repository
 from app.modules.finance.parsers import parse_exchange_rate
 from app.shared.performance import timed_step
 from app.shared.uploads import save_upload
-from app.modules.finance.legacy_adapter import FinanceImportInput, import_finance_batch
 
 
 SPREADSHEET_SUFFIXES = {".xls", ".xlsx", ".xlsm"}
 
 
 def import_payment_file(payment_file: UploadFile) -> dict:
+    from app.modules.finance.legacy_adapter import FinanceImportInput, import_finance_batch
+
     session_id = uuid.uuid4().hex[:12]
     payment_path = save_upload(session_id, payment_file, "payment", allowed_suffixes=SPREADSHEET_SUFFIXES)
     with timed_step("finance.import_payment_file"):

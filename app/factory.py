@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.paths import OUTPUT_DIR, RUNTIME_DIR, STATIC_DIR, TEMPLATES_DIR, UPLOAD_DIR
 from app.shared.access_control import install_access_control, install_tms_upload_cors
+from app.shared.state import SESSION_STORE
 
 
 DatabaseInitializer = Callable[[], None]
@@ -41,6 +42,12 @@ def create_app(
         init_databases(db_initializers)
 
     app = FastAPI(title=title, lifespan=lifespan)
+
+    @app.middleware("http")
+    async def cleanup_expired_sessions(request: Any, call_next: Any) -> Any:
+        SESSION_STORE.cleanup_if_due()
+        return await call_next(request)
+
     install_access_control(app)
     install_tms_upload_cors(app)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

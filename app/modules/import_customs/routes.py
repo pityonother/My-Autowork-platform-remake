@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
-from app.modules.import_customs.legacy_adapter import CustomsOutput
+from app.modules.import_customs.schemas import CustomsOutput
 from app.modules.import_customs.service import build_import_customs_session
 from app.shared.state import SESSION_STORE
 from app.web.templates import templates
@@ -28,13 +28,13 @@ async def process_customs_files(
     request: Request,
     order_management_file: UploadFile | None = File(default=None),
     customs_bill_file: UploadFile | None = File(default=None),
-    source_files: list[UploadFile] = File(default=[]),
+    source_files: list[UploadFile] | None = File(default=None),
 ):
     try:
         session_id = build_import_customs_session(
             order_management_file=order_management_file,
             customs_bill_file=customs_bill_file,
-            source_files=source_files,
+            source_files=source_files or [],
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
