@@ -23,7 +23,11 @@ async def booking_lifespan(app: FastAPI) -> AsyncIterator[None]:
         await stop_delivery_list_background_refresh()
 
 
-app = create_app("Booking 生成器", routers=[booking_router], lifespan=booking_lifespan)
+def create_booking_app(title: str = "Booking 生成器") -> FastAPI:
+    return create_app(title, routers=[booking_router], lifespan=booking_lifespan)
+
+
+app = create_booking_app()
 
 
 @app.get("/")

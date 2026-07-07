@@ -22,7 +22,10 @@ class InstalledModule:
 def read_installed_modules(path: Path) -> dict[str, InstalledModule]:
     if not path.exists():
         return {}
-    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return {}
     modules_raw = data.get("modules", {}) if isinstance(data, dict) else {}
     result: dict[str, InstalledModule] = {}
     for module_id, raw in modules_raw.items():

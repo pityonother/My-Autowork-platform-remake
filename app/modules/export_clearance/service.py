@@ -12,6 +12,9 @@ from app.shared.uploads import save_upload
 from app.modules.export_clearance.legacy_adapter import ExportClearanceImportInput, import_export_clearance_batch
 
 
+SPREADSHEET_SUFFIXES = {".xls", ".xlsx", ".xlsm"}
+
+
 def import_clearance_batch(
     *,
     tracker: str,
@@ -22,7 +25,7 @@ def import_clearance_batch(
 ) -> dict:
     session_id = uuid.uuid4().hex[:12]
     source_paths: list[Path] = [
-        save_upload(session_id, item, f"export_source_{idx:03d}")
+        save_upload(session_id, item, f"export_source_{idx:03d}", allowed_suffixes=SPREADSHEET_SUFFIXES)
         for idx, item in enumerate(source_files, start=1)
         if item.filename
     ]

@@ -16,10 +16,12 @@ from app.modules.ufo_mail.service import (
     generate_mail_from_saved_session,
     import_signature,
 )
+from app.shared.uploads import read_upload_limited
 from app.web.templates import templates
 
 
 router = APIRouter()
+UFO_CONFIG_SUFFIXES = {".zip"}
 
 
 def build_ufo_context(
@@ -150,7 +152,7 @@ async def import_ufo_mail_config(request: Request, config_file: UploadFile = Fil
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     temp_path = UPLOAD_DIR / f"ufo_config_import_{uuid4().hex}.zip"
     try:
-        temp_path.write_bytes(await config_file.read())
+        temp_path.write_bytes(await read_upload_limited(config_file, allowed_suffixes=UFO_CONFIG_SUFFIXES))
         result = repository.import_ufo_config_package(temp_path)
     except Exception as exc:  # noqa: BLE001
         return templates.TemplateResponse(

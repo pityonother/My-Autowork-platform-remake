@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
@@ -12,7 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from app.core.paths import APP_DIR, RUNTIME_DIR
 from app.distribution.downloader import download_artifact
-from app.distribution.errors import DistributionError, DownloadError, HashMismatchError, ManifestError, ModuleRunningError
+from app.distribution.errors import DistributionError, ManifestError
 from app.distribution.installed import InstalledModule, read_installed_modules, upsert_installed_module
 from app.distribution.installer import install_module
 from app.distribution.launcher import ModuleProcessRegistry
@@ -176,13 +175,7 @@ async def refresh() -> RedirectResponse:
     try:
         load_manifest(manifest_url)
     except DistributionError as exc:
-        if isinstance(exc, HashMismatchError):
-            return redirect_with(error=exc.user_message, error_module=module_id, error_status="校验失败")
-        if isinstance(exc, DownloadError):
-            return redirect_with(error=exc.user_message, error_module=module_id, error_status="下载失败")
-        if isinstance(exc, ModuleRunningError):
-            return redirect_with(error=exc.user_message, error_module=module_id, error_status="请先关闭该模块后再更新")
-        return redirect_with(error=exc.user_message, error_module=module_id)
+        return redirect_with(error=exc.user_message)
     return redirect_with(message="远端 manifest 已刷新。")
 
 

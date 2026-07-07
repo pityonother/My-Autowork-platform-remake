@@ -1,0 +1,15 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = [
+    "dist",
+    "build",
+    "release_site",
+    ".venv",
+    ".venv-yolo",
+    ".venv_macos",
+    "runtime",
+]
+
+[tool.ruff.lint]
+select = ["E9", "F"]

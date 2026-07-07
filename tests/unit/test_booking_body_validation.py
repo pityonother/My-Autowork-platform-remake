@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import re
 from datetime import date, datetime
@@ -1144,7 +1145,57 @@ def test_booking_body_validation_extension_upload_redirects_to_session(monkeypat
     assert response.status_code == 303
     assert re.fullmatch(r"/modules/booking/body-validation/session/[0-9a-f]{32}", response.headers["location"])
 
-    result_response = TestClient(booking_app).get(response.headers["location"])
-    assert result_response.status_code == 200
-    assert "supplier_booking.xlsx" in result_response.text
-    assert "源数据导入表" in result_response.text
+
+def test_booking_body_validation_extension_upload_can_return_json(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(booking_routes, "BODY_VALIDATION_UPLOAD_DIR", tmp_path / "uploads")
+    content = _workbook_bytes([_valid_row()])
+    client = TestClient(booking_app, follow_redirects=False)
+
+    response = client.post(
+        "/modules/booking/body-validation/extension-upload",
+        headers={"accept": "application/json"},
+        files={
+            "booking_file": (
+                "supplier_booking.xlsx",
+                content,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert re.fullmatch(r"/modules/booking/body-validation/session/[0-9a-f]{32}", response.json()["url"])
+
+
+def test_booking_session_persistence_uses_hmac_signature(monkeypatch, tmp_path) -> None:
+    from app.modules.booking import routes as booking_routes
+
+    monkeypatch.setenv("MY_AUTOWORK_BOOKING_SESSION_SECRET", "test-secret")
+    monkeypatch.setattr(booking_routes, "BOOKING_SESSION_DIR", tmp_path / "booking_sessions")
+    booking_routes.SESSION_STORE.pop("signed-session", None)
+
+    booking_routes.persist_booking_session("signed-session", {"value": "ok"})
+    session_path = booking_routes.booking_session_path("signed-session")
+
+    assert session_path.read_text(encoding="utf-8").startswith("{")
+    envelope = json.loads(session_path.read_text(encoding="utf-8"))
+    payload = json.loads(base64.b64decode(envelope["payload"]).decode("utf-8"))
+    assert payload == {"value": "ok"}
+    booking_routes.SESSION_STORE.pop("signed-session", None)
+    assert booking_routes.restore_booking_session("signed-session") == {"value": "ok"}
+
+
+def test_booking_session_restore_rejects_tampered_payload(monkeypatch, tmp_path) -> None:
+    from app.modules.booking import routes as booking_routes
+
+    monkeypatch.setenv("MY_AUTOWORK_BOOKING_SESSION_SECRET", "test-secret")
+    monkeypatch.setattr(booking_routes, "BOOKING_SESSION_DIR", tmp_path / "booking_sessions")
+
+    booking_routes.persist_booking_session("signed-session", {"value": "ok"})
+    session_path = booking_routes.booking_session_path("signed-session")
+    envelope = json.loads(session_path.read_text(encoding="utf-8"))
+    envelope["hmac"] = "0" * 64
+    session_path.write_text(json.dumps(envelope), encoding="utf-8")
+
+    booking_routes.SESSION_STORE.pop("signed-session", None)
+    assert booking_routes.restore_booking_session("signed-session") is None

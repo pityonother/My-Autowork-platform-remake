@@ -12,7 +12,7 @@ from typing import Sequence
 
 from fastapi import UploadFile
 
-from app.core.paths import APP_DIR, OUTPUT_DIR, UPLOAD_DIR
+from app.core.paths import APP_DIR, OUTPUT_DIR, RUNTIME_DIR, UPLOAD_DIR
 from app.modules.ufo_mail.cover_processor import is_supported_ufo_document
 from app.modules.ufo_mail.rules import detect_ufo_no
 from app.shared.uploads import save_upload
@@ -118,7 +118,7 @@ def load_attachment_metadata(session_id: str) -> list[UfoAttachment]:
 
 def clear_output_cache() -> dict[str, int]:
     output_dir = OUTPUT_DIR.resolve()
-    runtime_dir = (APP_DIR / "runtime").resolve()
+    runtime_dir = RUNTIME_DIR.resolve()
     if output_dir.name != "outputs" or output_dir.parent != runtime_dir:
         raise ValueError("输出缓存目录校验失败，已停止清理。")
 
@@ -328,7 +328,7 @@ def generate_mail_from_saved_session(
 
 def import_signature(signature_file: UploadFile, marker: str) -> None:
     session_id = uuid.uuid4().hex[:12]
-    signature_path = save_upload(session_id, signature_file, "signature")
+    signature_path = save_upload(session_id, signature_file, "signature", allowed_suffixes={".eml"})
     import_ufo_signature_from_eml(signature_path, source_name=signature_file.filename, marker=marker)
 
 
@@ -346,7 +346,12 @@ def generate_mail(
     for idx, attachment in enumerate(attachments, start=1):
         if not attachment.filename:
             continue
-        saved_path = save_upload(session_id, attachment, f"ufo_attachment_{idx:03d}")
+        saved_path = save_upload(
+            session_id,
+            attachment,
+            f"ufo_attachment_{idx:03d}",
+            allowed_suffixes={".pdf", ".tif", ".tiff", ".jpg", ".jpeg", ".png", ".eml"},
+        )
         saved_attachments.append(UfoAttachment(path=saved_path, filename=attachment.filename))
 
     manual_ufo_no = ufo_no.strip()

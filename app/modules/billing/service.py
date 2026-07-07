@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 from typing import Sequence
 
 from fastapi import UploadFile
@@ -12,6 +11,10 @@ from app.shared.state import SESSION_STORE
 from app.shared.uploads import save_upload
 
 
+SPREADSHEET_SUFFIXES = {".xls", ".xlsx", ".xlsm"}
+DOCUMENT_SUFFIXES = SPREADSHEET_SUFFIXES | {".pdf"}
+
+
 def build_billing_session(
     *,
     master_file: UploadFile | None,
@@ -20,19 +23,23 @@ def build_billing_session(
     source_files: Sequence[UploadFile],
 ) -> str:
     session_id = uuid.uuid4().hex[:12]
-    master_path = save_upload(session_id, master_file, "master") if master_file and master_file.filename else None
+    master_path = (
+        save_upload(session_id, master_file, "master", allowed_suffixes=SPREADSHEET_SUFFIXES)
+        if master_file and master_file.filename
+        else None
+    )
     invoice_paths = [
-        save_upload(session_id, item, f"invoice_{idx:03d}")
+        save_upload(session_id, item, f"invoice_{idx:03d}", allowed_suffixes=DOCUMENT_SUFFIXES)
         for idx, item in enumerate(invoice_files, start=1)
         if item.filename
     ]
     delivery_paths = [
-        save_upload(session_id, item, f"delivery_{idx:03d}")
+        save_upload(session_id, item, f"delivery_{idx:03d}", allowed_suffixes=DOCUMENT_SUFFIXES)
         for idx, item in enumerate(delivery_note_files, start=1)
         if item.filename
     ]
     source_paths = [
-        save_upload(session_id, item, f"source_{idx:03d}")
+        save_upload(session_id, item, f"source_{idx:03d}", allowed_suffixes=SPREADSHEET_SUFFIXES)
         for idx, item in enumerate(source_files, start=1)
         if item.filename
     ]

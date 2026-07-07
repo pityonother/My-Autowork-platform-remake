@@ -13,7 +13,7 @@ from app.shared.uploads import save_upload
 from app.modules.booking.rules.registry import SUPPLIER_RULES
 from app.modules.booking.legacy_adapter import (
     BookingPreview,
-    available_suppliers,
+    available_suppliers as available_suppliers,
     build_booking_preview,
     extract_booking_attachments_from_eml,
     write_booking_workbook,
@@ -22,6 +22,11 @@ from app.modules.booking.legacy_adapter import (
 
 class BookingInputError(ValueError):
     pass
+
+
+EML_SUFFIXES = {".eml"}
+SPREADSHEET_SUFFIXES = {".xls", ".xlsx", ".xlsm"}
+PDF_SUFFIXES = {".pdf"}
 
 
 @dataclass
@@ -60,7 +65,7 @@ def build_preview_session(
     eml_path: Path | None = None
 
     if customer_eml and customer_eml.filename:
-        eml_path = save_upload(session_id, customer_eml, "booking_customer")
+        eml_path = save_upload(session_id, customer_eml, "booking_customer", allowed_suffixes=EML_SUFFIXES)
         if _supplier_uses_eml_pdf_source(supplier):
             source_path = eml_path
         else:
@@ -69,9 +74,9 @@ def build_preview_session(
                 UPLOAD_DIR / session_id / "booking_attachments",
             )
     if source_path is None and source_file and source_file.filename:
-        source_path = save_upload(session_id, source_file, "booking_source")
+        source_path = save_upload(session_id, source_file, "booking_source", allowed_suffixes=SPREADSHEET_SUFFIXES)
     if packadc_path is None and packadc_file and packadc_file.filename:
-        packadc_path = save_upload(session_id, packadc_file, "booking_packadc")
+        packadc_path = save_upload(session_id, packadc_file, "booking_packadc", allowed_suffixes=SPREADSHEET_SUFFIXES)
     if source_path is None:
         raise BookingInputError("请上传客户原始 eml，或手动上传 CCIXLS 文件。")
 
@@ -104,7 +109,7 @@ def write_warehouse_mail(
     customer_eml_path: Path,
     warehouse_file: UploadFile,
 ) -> Path:
-    warehouse_path = save_upload(session_id, warehouse_file, "booking_warehouse")
+    warehouse_path = save_upload(session_id, warehouse_file, "booking_warehouse", allowed_suffixes=SPREADSHEET_SUFFIXES)
     output_path = OUTPUT_DIR / f"booking_warehouse_mail_{session_id}.eml"
     with timed_step("booking.write_warehouse_mail"):
         generate_sil_fuca_warehouse_eml(
@@ -124,7 +129,7 @@ def write_flex_texas_reply_mail(
     tms_pdf_file: UploadFile,
     body_text: str = "",
 ) -> Path:
-    tms_pdf_path = save_upload(session_id, tms_pdf_file, "booking_flex_texas_tms_pdf")
+    tms_pdf_path = save_upload(session_id, tms_pdf_file, "booking_flex_texas_tms_pdf", allowed_suffixes=PDF_SUFFIXES)
     output_path = OUTPUT_DIR / f"flex_texas_booking_reply_{session_id}.eml"
     with timed_step("booking.write_flex_texas_reply_mail"):
         generate_flex_texas_booking_reply_eml(

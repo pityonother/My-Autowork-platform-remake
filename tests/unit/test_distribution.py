@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import asyncio
 import json
 import os
 import subprocess
@@ -10,11 +11,12 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.distribution.downloader import HashMismatchError, download_artifact
 from app.distribution.errors import InstallError, ManifestError
 from app.distribution.installed import InstalledModule, read_installed_modules, write_installed_modules
-from app.distribution.installer import safe_extract_zip
+from app.distribution.installer import install_module, safe_extract_zip
 from app.distribution.manifest import parse_manifest
 from app.module_catalog import MODULE_CATALOG
 
@@ -92,6 +94,26 @@ def test_zip_slip_path_is_rejected(tmp_path: Path) -> None:
         safe_extract_zip(zip_path, tmp_path / "extract")
 
 
+def test_install_package_missing_entry_keeps_current_version(tmp_path: Path) -> None:
+    modules_dir = tmp_path / "modules"
+    current_exe = modules_dir / "billing" / "current" / "BillingTool" / "BillingTool.exe"
+    current_exe.parent.mkdir(parents=True)
+    current_exe.write_text("old-version", encoding="utf-8")
+    zip_path = tmp_path / "bad.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("BillingTool/README.txt", "missing exe")
+
+    with pytest.raises(InstallError):
+        install_module(
+            module_id="billing",
+            zip_path=zip_path,
+            entry_exe="BillingTool/BillingTool.exe",
+            modules_dir=modules_dir,
+        )
+
+    assert current_exe.read_text(encoding="utf-8") == "old-version"
+
+
 def test_installed_modules_atomic_read_write(tmp_path: Path) -> None:
     path = tmp_path / "launcher" / "installed_modules.json"
     module = InstalledModule(
@@ -110,6 +132,31 @@ def test_installed_modules_atomic_read_write(tmp_path: Path) -> None:
 
     assert loaded["billing"].version == module.version
     assert not path.with_suffix(path.suffix + ".tmp").exists()
+
+
+def test_installed_modules_corrupted_json_returns_empty(tmp_path: Path) -> None:
+    path = tmp_path / "launcher" / "installed_modules.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{not-json", encoding="utf-8")
+
+    assert read_installed_modules(path) == {}
+
+
+def test_launcher_refresh_manifest_error_redirects_without_module_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.web.launcher import routes
+
+    monkeypatch.setattr(routes, "read_manifest_url", lambda: "file:///missing/manifest.json")
+
+    def fail_load_manifest(manifest_url: str):
+        raise ManifestError("manifest 不是有效的 JSON 文件。")
+
+    monkeypatch.setattr(routes, "load_manifest", fail_load_manifest)
+
+    response = asyncio.run(routes.refresh())
+
+    assert response.status_code == 303
+    assert "error=" in response.headers["location"]
+    assert "error_module" not in response.headers["location"]
 
 
 def test_module_catalog_covers_expected_modules_with_unique_ids() -> None:
@@ -159,6 +206,48 @@ def test_module_entrypoints_import_without_reconcile_web_app(tmp_path: Path) -> 
     )
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_create_booking_app_uses_delivery_refresh_lifespan(monkeypatch: pytest.MonkeyPatch) -> None:
+    import booking_web_app
+
+    calls: list[str] = []
+
+    def fake_start() -> None:
+        calls.append("start")
+
+    async def fake_stop() -> None:
+        calls.append("stop")
+
+    monkeypatch.setattr(booking_web_app, "start_delivery_list_background_refresh", fake_start)
+    monkeypatch.setattr(booking_web_app, "stop_delivery_list_background_refresh", fake_stop)
+
+    with TestClient(booking_web_app.create_booking_app()) as client:
+        response = client.get("/modules/booking")
+        assert response.status_code == 200
+
+    assert calls == ["start", "stop"]
+
+
+def test_reconcile_app_uses_delivery_refresh_lifespan(monkeypatch: pytest.MonkeyPatch) -> None:
+    import reconcile_web_app
+
+    calls: list[str] = []
+
+    def fake_start() -> None:
+        calls.append("start")
+
+    async def fake_stop() -> None:
+        calls.append("stop")
+
+    monkeypatch.setattr(reconcile_web_app, "start_delivery_list_background_refresh", fake_start)
+    monkeypatch.setattr(reconcile_web_app, "stop_delivery_list_background_refresh", fake_stop)
+
+    with TestClient(reconcile_web_app.app) as client:
+        response = client.get("/")
+        assert response.status_code in {200, 307}
+
+    assert calls == ["start", "stop"]
 
 
 def test_build_release_zip_excludes_runtime(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

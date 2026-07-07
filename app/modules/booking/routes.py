@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import os
-import pickle
+import base64
+import hashlib
+import hmac
 import re
+import secrets
 import uuid
 import json
+from dataclasses import asdict, is_dataclass
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app.core.paths import OUTPUT_DIR, RUNTIME_DIR
 from app.modules.booking.body_validation import (
@@ -34,6 +41,7 @@ from app.modules.booking.service import (
     write_warehouse_mail,
 )
 from app.modules.booking.service import available_suppliers
+from app.shared.uploads import UploadValidationError, read_upload_limited
 from app.shared.state import SESSION_STORE
 from app.web.templates import templates
 
@@ -41,6 +49,8 @@ from app.web.templates import templates
 router = APIRouter()
 LOCK_SUPPLIER_ENV_VAR = "BOOKING_LOCK_SUPPLIER"
 BOOKING_SESSION_DIR = RUNTIME_DIR / "booking_sessions"
+BOOKING_SESSION_SECRET_ENV = "MY_AUTOWORK_BOOKING_SESSION_SECRET"
+BOOKING_SESSION_SECRET_FILENAME = ".booking_session_secret"
 BODY_VALIDATION_EXPORT_DIR = RUNTIME_DIR / "booking_body_validation_exports"
 BODY_VALIDATION_UPLOAD_DIR = RUNTIME_DIR / "booking_body_validation_uploads"
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{6,80}$")
@@ -48,6 +58,7 @@ BODY_VALIDATION_EXPORT_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+\.xlsx$")
 BODY_VALIDATION_UPLOAD_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 EML_MEDIA_TYPE = "message/rfc822"
+BODY_VALIDATION_SUFFIXES = {".xlsx"}
 
 
 def open_review_tiff(path: Path) -> None:
@@ -82,14 +93,122 @@ def resolve_selected_supplier(supplier: str) -> str:
 def booking_session_path(session_id: str) -> Path:
     if not SESSION_ID_PATTERN.fullmatch(session_id):
         raise HTTPException(status_code=404, detail="未找到这次导入记录。")
-    return BOOKING_SESSION_DIR / f"{session_id}.pickle"
+    return BOOKING_SESSION_DIR / f"{session_id}.json"
+
+
+def booking_session_secret() -> bytes:
+    env_secret = os.environ.get(BOOKING_SESSION_SECRET_ENV, "").strip()
+    if env_secret:
+        return env_secret.encode("utf-8")
+    BOOKING_SESSION_DIR.mkdir(parents=True, exist_ok=True)
+    secret_path = BOOKING_SESSION_DIR / BOOKING_SESSION_SECRET_FILENAME
+    if not secret_path.is_file():
+        secret_path.write_text(secrets.token_urlsafe(48), encoding="utf-8")
+    return secret_path.read_text(encoding="utf-8").strip().encode("utf-8")
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat(timespec="seconds")
+    if isinstance(value, date):
+        return value.isoformat()
+    if is_dataclass(value):
+        return _json_safe(asdict(value))
+    if isinstance(value, SimpleNamespace):
+        return _json_safe(vars(value))
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def _namespace_tree(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_namespace_tree(item) for item in value]
+    if isinstance(value, dict):
+        return SimpleNamespace(**{key: _namespace_tree(item) for key, item in value.items()})
+    return value
+
+
+def _booking_preview_to_payload(preview: BookingPreview) -> dict[str, Any]:
+    return _json_safe(preview)
+
+
+def _booking_preview_from_payload(payload: Any) -> BookingPreview | None:
+    if not isinstance(payload, dict):
+        return None
+    data = dict(payload)
+    output_path = str(data.get("output_path") or "").strip()
+    data["output_path"] = Path(output_path) if output_path else None
+    data["validation_sections"] = _namespace_tree(data.get("validation_sections", []))
+    try:
+        return BookingPreview(**data)
+    except TypeError:
+        return None
+
+
+def _booking_session_to_payload(data: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in data.items():
+        if key == "booking_preview" and isinstance(value, BookingPreview):
+            payload[key] = _booking_preview_to_payload(value)
+        else:
+            payload[key] = _json_safe(value)
+    return payload
+
+
+def _booking_session_from_payload(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    data = dict(payload)
+    if "booking_preview" in data:
+        preview = _booking_preview_from_payload(data.get("booking_preview"))
+        if preview is None:
+            return None
+        data["booking_preview"] = preview
+    return data
+
+
+def signed_booking_session_bytes(data: dict[str, Any]) -> bytes:
+    payload = json.dumps(_booking_session_to_payload(data), ensure_ascii=False).encode("utf-8")
+    digest = hmac.new(booking_session_secret(), payload, hashlib.sha256).hexdigest()
+    envelope = {
+        "version": 1,
+        "payload": base64.b64encode(payload).decode("ascii"),
+        "hmac": digest,
+    }
+    return json.dumps(envelope, ensure_ascii=False).encode("utf-8")
+
+
+def load_signed_booking_session(raw: bytes) -> dict[str, Any] | None:
+    try:
+        envelope = json.loads(raw.decode("utf-8"))
+        if not isinstance(envelope, dict):
+            return None
+        payload_text = str(envelope.get("payload", ""))
+        supplied_digest = str(envelope.get("hmac", ""))
+        payload = base64.b64decode(payload_text.encode("ascii"), validate=True)
+        expected_digest = hmac.new(booking_session_secret(), payload, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(supplied_digest, expected_digest):
+            return None
+        data = _booking_session_from_payload(json.loads(payload.decode("utf-8")))
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def persist_booking_session(session_id: str, data: dict[str, Any]) -> None:
     BOOKING_SESSION_DIR.mkdir(parents=True, exist_ok=True)
     target_path = booking_session_path(session_id)
     temp_path = target_path.with_suffix(".tmp")
-    temp_path.write_bytes(pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL))
+    temp_path.write_bytes(signed_booking_session_bytes(data))
     temp_path.replace(target_path)
 
 
@@ -97,11 +216,8 @@ def restore_booking_session(session_id: str) -> dict[str, Any] | None:
     path = booking_session_path(session_id)
     if not path.is_file():
         return None
-    try:
-        data = pickle.loads(path.read_bytes())
-    except Exception:
-        return None
-    if not isinstance(data, dict):
+    data = load_signed_booking_session(path.read_bytes())
+    if data is None:
         return None
     SESSION_STORE[session_id] = data
     return data
@@ -338,16 +454,23 @@ async def booking_body_validation_session_page(request: Request, session_id: str
 
 
 @router.post("/modules/booking/body-validation/extension-upload")
-async def booking_body_validation_extension_upload(booking_file: UploadFile = File(...)) -> RedirectResponse:
+async def booking_body_validation_extension_upload(
+    request: Request,
+    booking_file: UploadFile = File(...),
+) -> Response:
     if not booking_file.filename:
         raise HTTPException(status_code=400, detail="请上传 booking form xlsx 文件。")
     filename = booking_file.filename
-    if not filename.lower().endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="当前筛查页先支持 .xlsx booking form。")
-    content = await booking_file.read()
+    try:
+        content = await read_upload_limited(booking_file, allowed_suffixes=BODY_VALIDATION_SUFFIXES)
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     session_id = write_body_validation_upload(content, filename=filename)
+    session_url = f"/modules/booking/body-validation/session/{session_id}"
+    if "application/json" in request.headers.get("accept", ""):
+        return JSONResponse({"url": session_url})
     return RedirectResponse(
-        url=f"/modules/booking/body-validation/session/{session_id}",
+        url=session_url,
         status_code=303,
     )
 
@@ -373,14 +496,7 @@ async def preview_booking_body_validation(
     try:
         if booking_file and booking_file.filename:
             filename = booking_file.filename
-            if not filename.lower().endswith(".xlsx"):
-                return templates.TemplateResponse(
-                    request,
-                    "booking_body_validation.html",
-                    body_validation_context(error="当前筛查页先支持 .xlsx booking form。"),
-                    status_code=400,
-                )
-            content = await booking_file.read()
+            content = await read_upload_limited(booking_file, allowed_suffixes=BODY_VALIDATION_SUFFIXES)
             session_id = write_body_validation_upload(content, filename=filename)
         else:
             content, filename = read_body_validation_upload(session_id)

@@ -13,6 +13,9 @@ from app.shared.state import SESSION_STORE
 from app.shared.uploads import save_upload
 
 
+SPREADSHEET_SUFFIXES = {".xls", ".xlsx", ".xlsm"}
+
+
 def build_import_customs_session(
     *,
     order_management_file: UploadFile | None,
@@ -21,17 +24,17 @@ def build_import_customs_session(
 ) -> str:
     session_id = uuid.uuid4().hex[:12]
     order_management_path = (
-        save_upload(session_id, order_management_file, "order_management")
+        save_upload(session_id, order_management_file, "order_management", allowed_suffixes=SPREADSHEET_SUFFIXES)
         if order_management_file and order_management_file.filename
         else None
     )
     customs_bill_path = (
-        save_upload(session_id, customs_bill_file, "customs_bill")
+        save_upload(session_id, customs_bill_file, "customs_bill", allowed_suffixes=SPREADSHEET_SUFFIXES)
         if customs_bill_file and customs_bill_file.filename
         else None
     )
     source_paths: list[Path] = [
-        save_upload(session_id, item, f"source_{idx:03d}")
+        save_upload(session_id, item, f"source_{idx:03d}", allowed_suffixes=SPREADSHEET_SUFFIXES)
         for idx, item in enumerate(source_files, start=1)
         if item.filename
     ]

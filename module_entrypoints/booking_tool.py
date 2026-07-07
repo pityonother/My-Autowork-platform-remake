@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from app.factory import create_app
-from app.modules.booking.routes import router
+from booking_web_app import create_booking_app
 from app.packaging.local_server import run_local_app
 
 
-app = create_app("Booking 生成器", routers=[router])
+app = create_booking_app()
 
 
 def main() -> None:

@@ -73,14 +73,16 @@ def test_ufo_mail_output_path_stays_inside_output_dir(monkeypatch, tmp_path) -> 
 def test_clear_output_cache_removes_children_but_keeps_outputs(monkeypatch, tmp_path) -> None:
     from app.modules.ufo_mail import service
 
-    app_dir = tmp_path / "app"
-    output_dir = app_dir / "runtime" / "outputs"
+    runtime_dir = tmp_path / "custom_runtime"
+    output_dir = runtime_dir / "outputs"
     nested_dir = output_dir / "ufo_processed"
     nested_dir.mkdir(parents=True)
     (nested_dir / "preview.png").write_bytes(b"png")
     (output_dir / "mail.eml").write_text("eml", encoding="utf-8")
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("keep", encoding="utf-8")
 
-    monkeypatch.setattr(service, "APP_DIR", app_dir)
+    monkeypatch.setattr(service, "RUNTIME_DIR", runtime_dir)
     monkeypatch.setattr(service, "OUTPUT_DIR", output_dir)
 
     result = service.clear_output_cache()
@@ -88,6 +90,7 @@ def test_clear_output_cache_removes_children_but_keeps_outputs(monkeypatch, tmp_
     assert result == {"deleted_files": 1, "deleted_dirs": 1}
     assert output_dir.exists()
     assert list(output_dir.iterdir()) == []
+    assert outside_file.read_text(encoding="utf-8") == "keep"
 
 
 def test_prepare_ufo_attachments_keeps_non_document_attachments(monkeypatch, tmp_path) -> None:
@@ -127,7 +130,7 @@ def test_generate_mail_does_not_use_filename_as_manual_ufo_no(monkeypatch, tmp_p
     class DummyUpload:
         filename = "UFO26052201.pdf"
 
-    def fake_save_upload(session_id, uploaded, prefix):
+    def fake_save_upload(session_id, uploaded, prefix, **kwargs):
         return tmp_path / uploaded.filename
 
     def fail_processor(**kwargs):

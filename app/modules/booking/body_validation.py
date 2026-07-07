@@ -13,19 +13,25 @@ from app.modules.booking.sil_fuca_delivery import (
     SilFucaDeliveryQuery,
     SilFucaDeliveryRecord,
 )
+from app.modules.booking.body_validation_fields import (
+    ALLOW_ZERO_NUMERIC_FIELDS,
+    BODY_FIELDS,
+    FALLBACK_COUNTRY_KEYS,
+    FIELDS_BY_CODE,
+    INTEGER_FIELDS,
+    POSITIVE_WEIGHT_PO_PREFIXES,
+    REQUIRED_FIELDS,
+    SIL_FUCA_DYNAMIC_PO_PREFIXES,
+    SPECIAL_COUNTRY_KEYS,
+    UNIT_NORMALIZABLE_NUMERIC_FIELDS,
+    WEIGHT_AVERAGE_SCALE,
+    BookingBodyField,
+)
 from app.modules.booking.legacy_adapter import _country_lookup_key, load_country_abbr_lookup
 from app.shared.lazy_imports import lazy_module
-from booking_rules.common import PURCHASER_BY_PO_PREFIX
 
 
 openpyxl = lazy_module("openpyxl")
-
-
-@dataclass(frozen=True)
-class BookingBodyField:
-    code: str
-    label: str
-    column_letter: str
 
 
 @dataclass
@@ -129,95 +135,6 @@ class BookingBodyValidationPreview:
         return len({issue.row_number for issue in self.display_issues if issue.row_number is not None})
 
 
-BODY_FIELDS = [
-    BookingBodyField("Line", "Line", "A"),
-    BookingBodyField("case_number", "Case number", "B"),
-    BookingBodyField("PO_No", "PO No.", "C"),
-    BookingBodyField("Customer_Part_No", "PN / Customer Part No.", "D"),
-    BookingBodyField("Part_Description", "Part Description", "E"),
-    BookingBodyField("Quantity", "Quantity", "F"),
-    BookingBodyField("unit", "Unit", "G"),
-    BookingBodyField("Pkgs", "Cartons", "H"),
-    BookingBodyField("FJZ", "N.Wt", "I"),
-    BookingBodyField("G_Wt", "G.Wt", "J"),
-    BookingBodyField("CBM", "CBM", "K"),
-    BookingBodyField("Pallet", "Pallet", "L"),
-    BookingBodyField("Invoice_No", "Invoice No.", "M"),
-    BookingBodyField("madeDate", "Production date", "N"),
-    BookingBodyField("Invoice_Date", "Invoice Date", "O"),
-    BookingBodyField("Made_In", "Made In", "P"),
-    BookingBodyField("Batch_No", "Batch No.", "Q"),
-    BookingBodyField("ASN", "Delivery Schedule Number", "R"),
-    BookingBodyField("gyskbh", "Supplier card number", "S"),
-    BookingBodyField("packing", "Supplier delivery note number", "T"),
-    BookingBodyField("Tray_Type", "Tray Type", "U"),
-    BookingBodyField("brand", "Brand", "V"),
-    BookingBodyField("LEDBinCode", "LEDBinCode", "W"),
-    BookingBodyField("min_package", "Min package", "X"),
-    BookingBodyField("per_box", "Standard quantity per box", "Y"),
-    BookingBodyField("IPPC", "IPPC", "Z"),
-    BookingBodyField("Remark", "Remark", "AA"),
-]
-
-FIELDS_BY_CODE = {field.code: field for field in BODY_FIELDS}
-REQUIRED_FIELDS = {
-    "case_number",
-    "PO_No",
-    "Customer_Part_No",
-    "Part_Description",
-    "Quantity",
-    "unit",
-    "Pkgs",
-    "FJZ",
-    "G_Wt",
-    "CBM",
-    "Pallet",
-    "Invoice_No",
-    "madeDate",
-    "Made_In",
-    "Batch_No",
-    "packing",
-    "brand",
-    "LEDBinCode",
-    "min_package",
-    "per_box",
-}
-ALLOW_ZERO_NUMERIC_FIELDS = {"Pkgs", "FJZ", "G_Wt", "CBM", "Pallet", "min_package"}
-INTEGER_FIELDS = {"Pkgs", "Pallet"}
-KNOWN_PO_PREFIXES = set(PURCHASER_BY_PO_PREFIX)
-POSITIVE_WEIGHT_PO_PREFIXES = KNOWN_PO_PREFIXES | {"E330"}
-FALLBACK_COUNTRY_KEYS = {
-    "CN",
-    "CHINA",
-    "HK",
-    "HONGKONG",
-    "US",
-    "USA",
-    "UNITEDSTATES",
-    "JP",
-    "JAPAN",
-    "KR",
-    "KOREA",
-    "REPUBLICOFKOREA",
-    "MY",
-    "MALAYSIA",
-    "PH",
-    "PHILIPPINES",
-    "SG",
-    "SINGAPORE",
-    "TH",
-    "THAILAND",
-    "TW",
-    "TAIWAN",
-    "VN",
-    "VIETNAM",
-}
-SPECIAL_COUNTRY_KEYS = {"TW,CN", "TAIWAN,CHINA"}
-NUMERIC_FIELD_CODES = {"Quantity", "Pkgs", "FJZ", "G_Wt", "CBM", "Pallet", "min_package", "per_box"}
-UNIT_NORMALIZABLE_NUMERIC_FIELDS = NUMERIC_FIELD_CODES - {"per_box"}
-MANUAL_REVIEW_NA_FIELDS = {"Pkgs", "FJZ", "G_Wt", "CBM", "min_package"}
-WEIGHT_AVERAGE_SCALE = Decimal("0.001")
-SIL_FUCA_DYNAMIC_PO_PREFIXES = KNOWN_PO_PREFIXES
 AMBIGUOUS_NA_CASE_MANUAL_FIELDS = {
     "Pkgs",
     "FJZ",
@@ -970,12 +887,12 @@ def _load_rows(workbook_bytes: bytes) -> tuple[list[BookingBodyRow], str]:
         values: dict[str, str] = {}
         cell_formats: dict[str, str] = {}
         date_cells: set[str] = set()
-        for field in BODY_FIELDS:
-            cell = ws[f"{field.column_letter}{excel_row}"]
-            values[field.code] = _normalize_import_value(field.code, cell.value)
-            cell_formats[field.code] = cell.number_format or ""
+        for body_field in BODY_FIELDS:
+            cell = ws[f"{body_field.column_letter}{excel_row}"]
+            values[body_field.code] = _normalize_import_value(body_field.code, cell.value)
+            cell_formats[body_field.code] = cell.number_format or ""
             if isinstance(cell.value, (datetime, date)):
-                date_cells.add(field.code)
+                date_cells.add(body_field.code)
         if _is_empty_row(values):
             continue
         rows.append(
@@ -1184,170 +1101,29 @@ def _apply_static_fixes(rows: list[BookingBodyRow]) -> int:
         ambiguous_na_case = _is_ambiguous_na_case_missing_line(row)
         if not ambiguous_na_case:
             fix_count += _apply_packaging_quantity_fallback(row)
-        for field in BODY_FIELDS:
-            if ambiguous_na_case and field.code in AMBIGUOUS_NA_CASE_MANUAL_FIELDS:
+        for body_field in BODY_FIELDS:
+            if ambiguous_na_case and body_field.code in AMBIGUOUS_NA_CASE_MANUAL_FIELDS:
                 continue
-            if field.code == "madeDate" and _needs_excel_date_format_fix(row):
-                row.fixed_fields.add(field.code)
-                row.correction_options[field.code] = (row.values.get(field.code, ""),)
-                row.correction_kinds[field.code] = "date_format"
-                row.cell_formats[field.code] = "yyyy-mm-dd"
+            if body_field.code == "madeDate" and _needs_excel_date_format_fix(row):
+                row.fixed_fields.add(body_field.code)
+                row.correction_options[body_field.code] = (row.values.get(body_field.code, ""),)
+                row.correction_kinds[body_field.code] = "date_format"
+                row.cell_formats[body_field.code] = "yyyy-mm-dd"
                 fix_count += 1
                 continue
-            fixed = _auto_fix_value(field.code, row.values)
+            fixed = _auto_fix_value(body_field.code, row.values)
             if fixed is None:
                 continue
-            row.values[field.code] = fixed.value
-            row.fixed_fields.add(field.code)
+            row.values[body_field.code] = fixed.value
+            row.fixed_fields.add(body_field.code)
             if fixed.options:
-                row.correction_options[field.code] = fixed.options
+                row.correction_options[body_field.code] = fixed.options
             if fixed.kind:
-                row.correction_kinds[field.code] = fixed.kind
+                row.correction_kinds[body_field.code] = fixed.kind
             fix_count += 1
     fix_count += _apply_previous_line_weight_average_for_na_case(rows)
     fix_count += _apply_weight_average_by_case(rows)
     return fix_count
-
-
-def _validate_required(row: BookingBodyRow) -> list[BookingBodyIssue]:
-    issues: list[BookingBodyIssue] = []
-    for field_code in REQUIRED_FIELDS:
-        if _is_missing(row.values.get(field_code, "")):
-            issues.append(_issue(row, field_code, f"{_field_label(field_code)} 是必填字段。"))
-    return issues
-
-
-def _validate_row(row: BookingBodyRow, country_keys: set[str]) -> list[BookingBodyIssue]:
-    values = row.values
-    issues = _validate_required(row)
-
-    quantity = values.get("Quantity", "")
-    if quantity.upper() == "NAN":
-        issues.append(_issue(row, "Quantity", "Quantity 不能为 NaN。"))
-    elif quantity:
-        number = _decimal(quantity)
-        if number is None:
-            issues.append(_issue(row, "Quantity", "Quantity 必须是数字。"))
-        elif number == 0:
-            issues.append(_issue(row, "Quantity", "Quantity 不能为 0。"))
-
-    for field_code in ALLOW_ZERO_NUMERIC_FIELDS:
-        value = values.get(field_code, "")
-        if not value:
-            continue
-        if value.upper() == "NA":
-            issues.append(_issue(row, field_code, f"{_field_label(field_code)} 不能填 NA；没有请填 0。", "0"))
-            continue
-        number = _decimal(value)
-        if number is None:
-            issues.append(_issue(row, field_code, f"{_field_label(field_code)} 必须是数字。"))
-        elif field_code in INTEGER_FIELDS and number != number.to_integral_value():
-            issues.append(_issue(row, field_code, f"{_field_label(field_code)} 不能带小数点。"))
-
-    cbm = values.get("CBM", "")
-    if cbm and not re.fullmatch(r"\d+(?:\.\d+)?", cbm):
-        issues.append(_issue(row, "CBM", "CBM 应填写为数值形式，例如 1.5。"))
-
-    per_box = values.get("per_box", "")
-    min_package = values.get("min_package", "")
-    per_box_number = _decimal(per_box) if per_box else None
-    min_package_number = _decimal(min_package) if min_package else None
-    if per_box.upper() == "NA":
-        issues.append(_issue(row, "per_box", "Standard quantity per box 不能填 NA。"))
-    elif per_box:
-        if per_box_number is None:
-            issues.append(_issue(row, "per_box", "Standard quantity per box 必须是数字。"))
-        elif per_box_number == 0:
-            issues.append(_issue(row, "per_box", "Standard quantity per box 不能为 0。"))
-        elif min_package_number is not None:
-            if per_box_number < min_package_number:
-                issues.append(_issue(row, "per_box", "Standard quantity per box 必须大于等于 Min package。"))
-            elif min_package_number != 0 and per_box_number % min_package_number != 0:
-                issues.append(_issue(row, "per_box", "Standard quantity per box 必须是 Min package 的整数倍。"))
-
-    brand = values.get("brand", "")
-    if not brand.strip() or brand.strip().upper() == "NA":
-        issues.append(_issue(row, "brand", "如果没有品牌，Brand 要填“无”。", "无"))
-
-    invoice_no = values.get("Invoice_No", "")
-    cleaned_invoice_no = re.sub(r"[^0-9A-Za-z]", "", invoice_no)
-    if invoice_no and cleaned_invoice_no != invoice_no:
-        issues.append(_issue(row, "Invoice_No", "Invoice No. 只能保留字母和数字。", cleaned_invoice_no))
-
-    customer_part = values.get("Customer_Part_No", "")
-    if customer_part and not re.fullmatch(r"[A-Za-z0-9]+", customer_part):
-        issues.append(_issue(row, "Customer_Part_No", "PN / Customer Part No. 只能包含英文字母和数字。"))
-
-    production_date = values.get("madeDate", "")
-    if production_date and not (
-        re.fullmatch(r"\d{4}-\d{2}-\d{2}", production_date)
-        or re.fullmatch(r"\d{6}", production_date)
-        or re.fullmatch(r"\d{4}", production_date)
-    ):
-        issues.append(_issue(row, "madeDate", "Production date 需为 YYYY-MM-DD、6 位周别或 4 位周别。"))
-
-    if production_date and _valid_production_date(production_date) and _needs_excel_date_format_fix(row):
-        issues.append(
-            _issue(
-                row,
-                "madeDate",
-                "Production date 在 Excel 中的显示格式不是 YYYY-MM-DD，需要统一为 yyyy-mm-dd。",
-                production_date,
-                correction_options=(production_date,),
-                correction_kind="date_format",
-            )
-        )
-
-    made_in = values.get("Made_In", "")
-    if made_in and _country_lookup_key(made_in) not in country_keys:
-        issues.append(_issue(row, "Made_In", "Made In 需填写合理国家简称或国家全称。"))
-
-    po_no = values.get("PO_No", "")
-    if po_no and not _valid_po_no(po_no):
-        issues.append(_issue(row, "PO_No", "PO No. 格式应类似 W33D-25040701-0001。"))
-
-    packing = values.get("packing", "")
-    if packing and not _valid_delivery_note(packing):
-        issues.append(_issue(row, "packing", "Supplier delivery note number 格式不符合系统要求。"))
-
-    tray_type = values.get("Tray_Type", "")
-    if tray_type.replace(" ", "") == "WOODENPALLET" and not values.get("IPPC", ""):
-        issues.append(_issue(row, "IPPC", "Tray Type 为 WOODEN PALLET 时，IPPC 必填。"))
-
-    po_prefix = po_no[:4]
-    if po_prefix in POSITIVE_WEIGHT_PO_PREFIXES:
-        if (_decimal(values.get("FJZ", "")) or Decimal("0")) <= 0:
-            issues.append(_issue(row, "FJZ", "该 PO 前缀下净重不能小于等于 0。"))
-        if (_decimal(values.get("G_Wt", "")) or Decimal("0")) <= 0:
-            issues.append(_issue(row, "G_Wt", "该 PO 前缀下毛重不能小于等于 0。"))
-
-    return issues
-
-
-def _validate_cross_row(rows: list[BookingBodyRow]) -> list[BookingBodyIssue]:
-    issues: list[BookingBodyIssue] = []
-    if not rows:
-        return issues
-
-    xp_rows = [row for row in rows if row.values.get("Customer_Part_No", "").startswith("XP")]
-    if xp_rows and len(xp_rows) != len(rows):
-        for row in rows:
-            issues.append(_issue(row, "Customer_Part_No", "XP 开头 PN 不能和非 XP PN 混在同一个 booking。"))
-
-    po_prefixes = {row.values.get("PO_No", "")[:4] for row in rows if row.values.get("PO_No", "")}
-    if "E330" in po_prefixes and len(po_prefixes) >= 2 and not po_prefixes.issubset({"E330", "E33L"}):
-        issues.append(_issue(None, "PO_No", "E330 通常只能单独预约，或只和 E33L 一起预约。"))
-
-    total_cartons = sum(_decimal(row.values.get("Pkgs", "")) or Decimal("0") for row in rows)
-    total_net = sum(_decimal(row.values.get("FJZ", "")) or Decimal("0") for row in rows)
-    total_gross = sum(_decimal(row.values.get("G_Wt", "")) or Decimal("0") for row in rows)
-    if total_cartons == 0:
-        issues.append(_issue(None, "Pkgs", "总箱数不能为 0。"))
-    if total_net > total_gross:
-        issues.append(_issue(None, "FJZ", "总净重不能大于总毛重。"))
-    if total_net == 0 or total_gross == 0:
-        issues.append(_issue(None, "FJZ", "总净重或总毛重不能为 0。"))
-    return issues
 
 
 def _reset_row_issues(rows: list[BookingBodyRow]) -> None:
@@ -1604,6 +1380,10 @@ def _validate_body_row(row: BookingBodyRow, country_keys: set[str]) -> list[Book
     if packing and not _valid_delivery_note(packing):
         issues.append(_issue(row, "packing", "Supplier delivery note number 格式不符合系统要求。"))
 
+    tray_type = values.get("Tray_Type", "")
+    if tray_type.replace(" ", "").upper() == "WOODENPALLET" and not values.get("IPPC", ""):
+        issues.append(_issue(row, "IPPC", "Tray Type 为 WOODEN PALLET 时，IPPC 必填。"))
+
     po_prefix = po_no[:4]
     if po_prefix in POSITIVE_WEIGHT_PO_PREFIXES:
         if (_decimal(values.get("FJZ", "")) or Decimal("0")) <= 0:
@@ -1784,17 +1564,19 @@ def build_corrected_body_validation_workbook(
     wb = openpyxl.load_workbook(BytesIO(workbook_bytes))
     ws = wb[wb.sheetnames[0]]
     for row in preview.rows:
-        for field in BODY_FIELDS:
-            value = row.values.get(field.code, "")
-            if field.code in row.fixed_fields or (field.code == "madeDate" and value and _valid_production_date(value)):
-                split_merged = row.correction_kind_for(field.code) in {
+        for body_field in BODY_FIELDS:
+            value = row.values.get(body_field.code, "")
+            if body_field.code in row.fixed_fields or (
+                body_field.code == "madeDate" and value and _valid_production_date(value)
+            ):
+                split_merged = row.correction_kind_for(body_field.code) in {
                     "manual_confirmed",
                     "weight_average_previous_line",
                 }
                 _write_corrected_cell(
                     ws,
-                    f"{field.column_letter}{row.excel_row}",
-                    field.code,
+                    f"{body_field.column_letter}{row.excel_row}",
+                    body_field.code,
                     value,
                     split_merged=split_merged,
                 )

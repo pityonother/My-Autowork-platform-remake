@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_DOWN, ROUND_HALF_UP
 from email import policy
 from email.message import Message

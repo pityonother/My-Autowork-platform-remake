@@ -22,6 +22,7 @@ from typing import Any, Iterable, Sequence
 from xml.etree import ElementTree as ET
 
 from app.core.db import connect, run_migrations
+from app.shared.fonts import font_text_height, load_preferred_font
 from app.shared.lazy_imports import lazy_module
 from app_paths import RUNTIME_DIR
 
@@ -1458,13 +1459,10 @@ def render_master_ticket_image_fallback(
             tan_row[0] = tan_no
             if len(tan_row) > 1:
                 tan_row[1] = tan_remark
-    try:
-        font = ImageFont.truetype("msyh.ttc", 16)
-    except Exception:
-        font = ImageFont.load_default()
+    font = load_preferred_font(16)
     padding_x = 10
     padding_y = 8
-    line_height = font.getbbox("A")[3] - font.getbbox("A")[1] + 5
+    line_height = max(font_text_height(font) + 5, 18)
     col_widths: list[int] = []
     column_count = max(1, end_col - start_col + 1)
     for col_idx in range(column_count):
@@ -1634,19 +1632,15 @@ def wrap_text_by_width(text: str, font: ImageFont.ImageFont | ImageFont.FreeType
 
 
 def render_ticket_snapshot_image(*, tan_no: str, preview_rows: list[list[str]], output_path: Path) -> Path:
-    try:
-        header_font = ImageFont.truetype("msyh.ttc", 16)
-        body_font = ImageFont.truetype("msyh.ttc", 16)
-    except Exception:
-        header_font = ImageFont.load_default()
-        body_font = ImageFont.load_default()
+    header_font = load_preferred_font(16)
+    body_font = load_preferred_font(16)
 
     headers = ["Tan#号", "PO", "Ship Mode", "PCS数量", "板数", "箱数", "备注"]
     col_widths = [110, 105, 105, 85, 65, 65, 140]
     cell_padding_x = 10
     cell_padding_y = 8
-    line_height = body_font.getbbox("A")[3] - body_font.getbbox("A")[1] + 6
-    header_line_height = header_font.getbbox("A")[3] - header_font.getbbox("A")[1] + 6
+    line_height = max(font_text_height(body_font) + 6, 18)
+    header_line_height = max(font_text_height(header_font) + 6, 18)
     row_heights: list[int] = []
     wrapped_rows: list[list[list[str]]] = []
     note_wrap_width = sum(col_widths[1:4]) - cell_padding_x * 2

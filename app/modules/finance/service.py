@@ -13,9 +13,12 @@ from app.shared.uploads import save_upload
 from app.modules.finance.legacy_adapter import FinanceImportInput, import_finance_batch
 
 
+SPREADSHEET_SUFFIXES = {".xls", ".xlsx", ".xlsm"}
+
+
 def import_payment_file(payment_file: UploadFile) -> dict:
     session_id = uuid.uuid4().hex[:12]
-    payment_path = save_upload(session_id, payment_file, "payment")
+    payment_path = save_upload(session_id, payment_file, "payment", allowed_suffixes=SPREADSHEET_SUFFIXES)
     with timed_step("finance.import_payment_file"):
         return import_finance_batch(FinanceImportInput(payment_path=payment_path))
 
@@ -74,7 +77,7 @@ def export_outbound_bill(
     if rate is None or rate <= 0:
         raise ValueError("请输入大于 0 的汇率。")
     session_id = uuid.uuid4().hex[:12]
-    bill_path = save_upload(session_id, bill_file, "finance_bill")
+    bill_path = save_upload(session_id, bill_file, "finance_bill", allowed_suffixes=SPREADSHEET_SUFFIXES)
     rows = []
     if not category or category == "fy_export":
         rows = exports.build_finance_export_rows(
