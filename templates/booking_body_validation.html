@@ -124,6 +124,9 @@
             </div>
         </div>
         <div class="screening-app-actions">
+            {% if booking_return_url %}
+            <a class="screening-secondary-action" href="{{ booking_return_url }}">返回 SIL-FUCA Booking</a>
+            {% endif %}
             {% if preview %}
             <span class="screening-count-pill">{{ preview.display_issue_count }} 个问题</span>
             {% if export_url %}
@@ -132,7 +135,9 @@
             <button class="screening-primary-action" type="button" disabled>导出修正版</button>
             {% endif %}
             {% else %}
+            {% if not booking_return_url %}
             <a class="screening-secondary-action" href="/modules/booking">返回 Booking</a>
+            {% endif %}
             {% endif %}
         </div>
     </header>

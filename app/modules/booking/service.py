@@ -21,6 +21,7 @@ class BookingInputError(ValueError):
 EML_SUFFIXES = {".eml"}
 SPREADSHEET_SUFFIXES = {".xls", ".xlsx", ".xlsm"}
 PDF_SUFFIXES = {".pdf"}
+WAREHOUSE_SUFFIXES = SPREADSHEET_SUFFIXES | PDF_SUFFIXES
 
 
 @dataclass
@@ -113,7 +114,7 @@ def write_warehouse_mail(
     customer_eml_path: Path,
     warehouse_file: UploadFile,
 ) -> Path:
-    warehouse_path = save_upload(session_id, warehouse_file, "booking_warehouse", allowed_suffixes=SPREADSHEET_SUFFIXES)
+    warehouse_path = save_upload(session_id, warehouse_file, "booking_warehouse", allowed_suffixes=WAREHOUSE_SUFFIXES)
     output_path = OUTPUT_DIR / f"booking_warehouse_mail_{session_id}.eml"
     with timed_step("booking.write_warehouse_mail"):
         generate_sil_fuca_warehouse_eml(

@@ -50,7 +50,7 @@
   white-space: nowrap;
 }
 
-.booking-tms-close {
+.booking-tms-collapse {
   width: 28px;
   height: 28px;
   border: 1px solid #c8d4dc;
@@ -60,6 +60,14 @@
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+}
+
+#booking-tms-checker-host.is-collapsed .booking-tms-card {
+  width: 230px;
+}
+
+#booking-tms-checker-host.is-collapsed .booking-tms-body {
+  display: none;
 }
 
 .booking-tms-body {

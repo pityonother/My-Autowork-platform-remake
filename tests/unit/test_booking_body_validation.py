@@ -1126,6 +1126,208 @@ def test_booking_body_validation_can_start_from_generated_booking_preview(monkey
     assert re.search(r'name="validation_session_id" value="[0-9a-f]{32}"', response.text)
 
 
+def test_sil_fuca_body_validation_return_flow_restores_booking_preview(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("MY_AUTOWORK_BOOKING_SESSION_SECRET", "test-secret")
+    monkeypatch.setattr(booking_routes, "BOOKING_SESSION_DIR", tmp_path / "booking_sessions")
+    monkeypatch.setattr(booking_routes, "BODY_VALIDATION_UPLOAD_DIR", tmp_path / "validation_uploads")
+    monkeypatch.setattr(booking_routes, "BODY_VALIDATION_EXPORT_DIR", tmp_path / "validation_exports")
+    monkeypatch.setattr(
+        booking_routes,
+        "build_sil_fuca_delivery_client",
+        lambda **_kwargs: _FakeSilFucaDeliveryClient(),
+    )
+    output_path = tmp_path / "generated_booking.xlsx"
+    output_path.write_bytes(_workbook_bytes([_valid_row()]))
+    customer_eml_path = tmp_path / "customer.eml"
+    customer_eml_path.write_text("customer mail", encoding="utf-8")
+    origin_session_id = "sil-origin-session"
+    preview = BookingPreview(
+        session_id=origin_session_id,
+        supplier="SIL-FUCA",
+        source_filename="customer.eml",
+        pack_filename="pack.xlsx",
+        rows=[{"PO No. *": "C33C-25040701-0001"}],
+        columns=["PO No. *"],
+    )
+    session_data = {
+        "booking_preview": preview,
+        "booking_customer_eml_path": str(customer_eml_path),
+    }
+    booking_routes.SESSION_STORE[origin_session_id] = session_data
+    booking_routes.persist_booking_session(origin_session_id, session_data)
+    monkeypatch.setattr(booking_routes, "write_booking_output", lambda _preview: output_path)
+    client = TestClient(booking_app)
+    return_url = f"/modules/booking/preview/{origin_session_id}"
+
+    try:
+        initial_response = client.get(
+            f"/modules/booking/body-validation/from-preview/{origin_session_id}"
+        )
+
+        assert initial_response.status_code == 200
+        assert f'href="{return_url}"' in initial_response.text
+        assert "返回 SIL-FUCA Booking" in initial_response.text
+        session_match = re.search(
+            r'name="validation_session_id" value="([0-9a-f]{32})"',
+            initial_response.text,
+        )
+        assert session_match
+        validation_session_id = session_match.group(1)
+
+        suggestion_response = client.post(
+            "/modules/booking/body-validation",
+            data={"apply_fixes": "1", "validation_session_id": validation_session_id},
+        )
+
+        assert suggestion_response.status_code == 200
+        assert f'href="{return_url}"' in suggestion_response.text
+
+        export_response = client.post(
+            "/modules/booking/body-validation",
+            data={
+                "apply_fixes": "1",
+                "validation_session_id": validation_session_id,
+                "confirm_export": "1",
+                "manual_values_json": "{}",
+            },
+        )
+
+        assert export_response.status_code == 200
+        assert f'href="{return_url}"' in export_response.text
+        assert "/modules/booking/body-validation/export/" in export_response.text
+
+        booking_routes.SESSION_STORE.pop(origin_session_id, None)
+        restored_response = client.get(return_url)
+
+        assert restored_response.status_code == 200
+        assert "② 预览结果" in restored_response.text
+        assert "③ 入仓邮件" in restored_response.text
+        assert f'action="/modules/booking/warehouse-mail/{origin_session_id}"' in restored_response.text
+
+        def fail_body_validation(*_args, **_kwargs):
+            raise ValueError("forced validation failure")
+
+        monkeypatch.setattr(booking_routes, "build_body_validation_preview", fail_body_validation)
+        error_response = client.get(
+            f"/modules/booking/body-validation/session/{validation_session_id}"
+        )
+
+        assert error_response.status_code == 400
+        assert f'href="{return_url}"' in error_response.text
+    finally:
+        booking_routes.SESSION_STORE.pop(origin_session_id, None)
+
+
+def test_non_sil_preview_does_not_create_body_validation_return_link(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(booking_routes, "BODY_VALIDATION_UPLOAD_DIR", tmp_path / "uploads")
+    output_path = tmp_path / "generated_booking.xlsx"
+    output_path.write_bytes(_workbook_bytes([_valid_row()]))
+    origin_session_id = "weikeng-origin-session"
+    preview = BookingPreview(
+        session_id=origin_session_id,
+        supplier="SIL-WEIKENG",
+        source_filename="source.xlsx",
+        pack_filename="pack.xlsx",
+        rows=[{"PO No. *": "C33C-25040701-0001"}],
+        columns=["PO No. *"],
+    )
+    booking_routes.SESSION_STORE[origin_session_id] = {"booking_preview": preview}
+    monkeypatch.setattr(booking_routes, "write_booking_output", lambda _preview: output_path)
+    client = TestClient(booking_app)
+
+    try:
+        response = client.get(
+            f"/modules/booking/body-validation/from-preview/{origin_session_id}"
+        )
+
+        assert response.status_code == 200
+        assert "返回 SIL-FUCA Booking" not in response.text
+        session_match = re.search(
+            r'name="validation_session_id" value="([0-9a-f]{32})"',
+            response.text,
+        )
+        assert session_match
+        _, metadata_path = booking_routes.body_validation_upload_paths(session_match.group(1))
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        assert "origin_booking_session_id" not in metadata
+        assert client.get(f"/modules/booking/preview/{origin_session_id}").status_code == 404
+    finally:
+        booking_routes.SESSION_STORE.pop(origin_session_id, None)
+
+
+def test_sil_fuca_return_and_warehouse_mail_require_existing_customer_eml(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(booking_routes, "BODY_VALIDATION_UPLOAD_DIR", tmp_path / "uploads")
+    origin_session_id = "sil-missing-eml"
+    preview = BookingPreview(
+        session_id=origin_session_id,
+        supplier="SIL-FUCA",
+        source_filename="customer.eml",
+        pack_filename="pack.xlsx",
+        rows=[{"PO No. *": "C33C-25040701-0001"}],
+        columns=["PO No. *"],
+    )
+    booking_routes.SESSION_STORE[origin_session_id] = {
+        "booking_preview": preview,
+        "booking_customer_eml_path": str(tmp_path / "missing-customer.eml"),
+    }
+    validation_session_id = booking_routes.write_body_validation_upload(
+        _workbook_bytes([_valid_row()]),
+        filename="generated_booking.xlsx",
+        origin_booking_session_id=origin_session_id,
+    )
+    client = TestClient(booking_app)
+
+    try:
+        validation_response = client.get(
+            f"/modules/booking/body-validation/session/{validation_session_id}"
+        )
+        restored_response = client.get(f"/modules/booking/preview/{origin_session_id}")
+
+        assert validation_response.status_code == 200
+        assert "返回 SIL-FUCA Booking" not in validation_response.text
+        assert restored_response.status_code == 200
+        assert "③ 入仓邮件" not in restored_response.text
+        assert f'action="/modules/booking/warehouse-mail/{origin_session_id}"' not in restored_response.text
+    finally:
+        booking_routes.SESSION_STORE.pop(origin_session_id, None)
+
+
+def test_body_validation_forged_or_missing_origin_does_not_show_return_link(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(booking_routes, "BODY_VALIDATION_UPLOAD_DIR", tmp_path / "uploads")
+    validation_session_id = booking_routes.write_body_validation_upload(
+        _workbook_bytes([_valid_row()]),
+        filename="supplier_booking.xlsx",
+    )
+    _, metadata_path = booking_routes.body_validation_upload_paths(validation_session_id)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["origin_booking_session_id"] = "missing-origin-session"
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+    client = TestClient(booking_app)
+
+    response = client.get(f"/modules/booking/body-validation/session/{validation_session_id}")
+
+    assert response.status_code == 200
+    assert "返回 SIL-FUCA Booking" not in response.text
+    assert client.get("/modules/booking/preview/missing-origin-session").status_code == 404
+    unsafe_session_id = "unsafe session"
+    unsafe_preview = BookingPreview(
+        session_id=unsafe_session_id,
+        supplier="SIL-FUCA",
+        source_filename="customer.eml",
+        pack_filename="pack.xlsx",
+        rows=[{"PO No. *": "C33C-25040701-0001"}],
+        columns=["PO No. *"],
+    )
+    booking_routes.SESSION_STORE[unsafe_session_id] = {
+        "booking_preview": unsafe_preview,
+        "booking_customer_eml_path": str(tmp_path / "customer.eml"),
+    }
+    try:
+        assert client.get("/modules/booking/preview/unsafe%20session").status_code == 404
+    finally:
+        booking_routes.SESSION_STORE.pop(unsafe_session_id, None)
+
+
 def test_booking_body_validation_extension_upload_redirects_to_session(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(booking_routes, "BODY_VALIDATION_UPLOAD_DIR", tmp_path / "uploads")
     content = _workbook_bytes([_valid_row()])
@@ -1144,6 +1346,9 @@ def test_booking_body_validation_extension_upload_redirects_to_session(monkeypat
 
     assert response.status_code == 303
     assert re.fullmatch(r"/modules/booking/body-validation/session/[0-9a-f]{32}", response.headers["location"])
+    validation_response = client.get(response.headers["location"])
+    assert validation_response.status_code == 200
+    assert "返回 SIL-FUCA Booking" not in validation_response.text
 
 
 def test_booking_body_validation_extension_upload_can_return_json(monkeypatch, tmp_path) -> None:

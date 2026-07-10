@@ -44,6 +44,22 @@ def test_booking_tms_extension_submits_to_extension_upload_route() -> None:
     assert 'id="access-token"' in popup_html
 
 
+def test_booking_tms_extension_restores_overlay_after_tms_dom_repaint_without_polling() -> None:
+    content_script = (EXTENSION_DIR / "content.js").read_text(encoding="utf-8")
+
+    assert "function ensureHost()" in content_script
+    assert "new MutationObserver" in content_script
+    assert "removedNodes" in content_script
+    assert "observer.observe(document, { childList: true, subtree: true })" in content_script
+    assert "const RESTORE_DELAY_MS = 250" in content_script
+    assert "window.setTimeout" in content_script
+    assert "queueMicrotask" not in content_script
+    assert "renderPromise" in content_script
+    assert "host.classList.toggle('is-collapsed')" in content_script
+    assert "host.remove()" not in content_script
+    assert "setInterval(" not in content_script
+
+
 def test_booking_tms_extension_reads_defaults_from_single_config_source() -> None:
     config_js = (EXTENSION_DIR / "config.js").read_text(encoding="utf-8")
     content_js = (EXTENSION_DIR / "content.js").read_text(encoding="utf-8")
@@ -76,12 +92,31 @@ def test_booking_tms_extension_build_package_injects_server_base(tmp_path) -> No
         encoding="utf-8"
     )
     assert 'defaultServerPort: "8010"' in (package_dir / "config.js").read_text(encoding="utf-8")
-    assert "https://192.168.10.205:8010" in (package_dir / "DEPLOYMENT.txt").read_text(encoding="utf-8")
+    deployment_note = (package_dir / "DEPLOYMENT.txt").read_text(encoding="utf-8")
+    assert "https://192.168.10.205:8010" in deployment_note
+    assert "保持“已启用”" in deployment_note
+    assert "代码无法绕过 Edge 的停用" in deployment_note
+    assert "不要移动、重命名或删除" in deployment_note
+    assert "重启电脑" in deployment_note
+    assert "重新打开 Edge" in deployment_note
     with zipfile.ZipFile(zip_path) as archive:
         names = set(archive.namelist())
     assert "booking_tms_checker_edge/manifest.json" in names
     assert "booking_tms_checker_edge/config.js" in names
     assert "booking_tms_checker_edge/content.js" in names
+
+
+def test_booking_tms_extension_docs_explain_unpacked_restart_boundary() -> None:
+    readme = (EXTENSION_DIR / "README.md").read_text(encoding="utf-8")
+    deployment = (EXTENSION_DIR / "DEPLOYMENT.md").read_text(encoding="utf-8")
+
+    for document in (readme, deployment):
+        assert "加载解压缩的扩展" in document
+        assert "保持“已启用”" in document
+        assert "代码无法绕过 Edge 的停用" in document
+        assert "不要移动、重命名或删除" in document
+        assert "重启电脑" in document
+        assert "重新打开 Edge" in document
 
 
 def test_booking_tms_extension_rejects_invalid_server_base() -> None:

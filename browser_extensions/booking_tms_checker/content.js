@@ -4,8 +4,17 @@
   const DEFAULT_SERVER_PORT = CONFIG.defaultServerPort || '8010';
   const STORAGE_KEY = 'bookingServerBase';
   const STORAGE_TOKEN_KEY = 'bookingAccessToken';
+  const HOST_ID = 'booking-tms-checker-host';
+  const RUNTIME_KEY = '__bookingTmsCheckerRuntime';
+  const RESTORE_DELAY_MS = 250;
+  let renderPromise = null;
+  let restoreTimer = null;
 
-  if (document.getElementById('booking-tms-checker-host')) {
+  if (
+    window[RUNTIME_KEY] &&
+    typeof window[RUNTIME_KEY].ensureHost === 'function'
+  ) {
+    void window[RUNTIME_KEY].ensureHost();
     return;
   }
 
@@ -88,10 +97,13 @@
   }
 
   function render(settings) {
+    if (document.getElementById(HOST_ID)) {
+      return;
+    }
     const serverBase = settings.serverBase;
     const accessToken = settings.accessToken;
     const host = document.createElement('div');
-    host.id = 'booking-tms-checker-host';
+    host.id = HOST_ID;
 
     const safeServerBase = escapeHtml(serverBase);
     host.innerHTML = `
@@ -101,7 +113,7 @@
             <strong>Booking 质检</strong>
             <span title="${safeServerBase}">${safeServerBase}</span>
           </div>
-          <button class="booking-tms-close" type="button" aria-label="关闭">×</button>
+          <button class="booking-tms-collapse" type="button" aria-label="收起质检入口" aria-expanded="true">−</button>
         </div>
         <div class="booking-tms-body">
           <label class="booking-tms-upload">
@@ -116,11 +128,14 @@
 
     const form = host.querySelector('form');
     const fileInput = host.querySelector('input[type="file"]');
-    const closeButton = host.querySelector('.booking-tms-close');
+    const collapseButton = host.querySelector('.booking-tms-collapse');
     const openButton = host.querySelector('.booking-tms-open');
 
-    closeButton.addEventListener('click', () => {
-      host.remove();
+    collapseButton.addEventListener('click', () => {
+      const isCollapsed = host.classList.toggle('is-collapsed');
+      collapseButton.textContent = isCollapsed ? '+' : '−';
+      collapseButton.setAttribute('aria-expanded', String(!isCollapsed));
+      collapseButton.setAttribute('aria-label', isCollapsed ? '展开质检入口' : '收起质检入口');
     });
 
     form.addEventListener('submit', async (event) => {
@@ -175,5 +190,58 @@
     document.documentElement.appendChild(host);
   }
 
-  getSettings().then(render);
+  function ensureHost() {
+    if (document.getElementById(HOST_ID)) {
+      return Promise.resolve();
+    }
+    if (renderPromise) {
+      return renderPromise;
+    }
+    renderPromise = getSettings()
+      .then((settings) => {
+        if (!document.getElementById(HOST_ID)) {
+          render(settings);
+        }
+      })
+      .finally(() => {
+        renderPromise = null;
+      });
+    return renderPromise;
+  }
+
+  function removedNodeContainsHost(node) {
+    if (!node || node.nodeType !== 1) {
+      return false;
+    }
+    if (node.id === HOST_ID) {
+      return true;
+    }
+    return typeof node.querySelector === 'function' && Boolean(node.querySelector(`#${HOST_ID}`));
+  }
+
+  function scheduleHostRestore() {
+    if (restoreTimer !== null) {
+      return;
+    }
+    restoreTimer = window.setTimeout(() => {
+      restoreTimer = null;
+      void ensureHost();
+    }, RESTORE_DELAY_MS);
+  }
+
+  const observer = new MutationObserver((mutations) => {
+    if (document.getElementById(HOST_ID)) {
+      return;
+    }
+    const hostWasRemoved = mutations.some((mutation) =>
+      Array.from(mutation.removedNodes || []).some(removedNodeContainsHost)
+    );
+    if (hostWasRemoved) {
+      scheduleHostRestore();
+    }
+  });
+
+  window[RUNTIME_KEY] = Object.freeze({ ensureHost });
+  observer.observe(document, { childList: true, subtree: true });
+  void ensureHost();
 })();

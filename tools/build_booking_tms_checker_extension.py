@@ -70,6 +70,13 @@ def write_deployment_note(output_dir: Path, server_base: str) -> None:
 4. 选择本文件夹。
 5. 刷新 SMOOTH TMS 页面。
 
+重要边界：
+
+- 这是加载解压缩的扩展，必须在 `edge://extensions/` 中保持“已启用”。
+- 如果 Edge 或公司的浏览器策略将它停用，代码无法绕过 Edge 的停用，也不会修改 Windows 注册表或 Edge 策略。
+- 被停用时需要手动重新启用，或由 IT 另行部署受管扩展。
+- Edge 会记住本文件夹的绝对路径；安装后不要移动、重命名或删除本文件夹，更新时覆盖原目录并点击“重新加载”。
+
 验收：
 
 1. 打开 `https://smooth.clztoud.com/Home/AdminDefault`。
@@ -77,6 +84,13 @@ def write_deployment_note(output_dir: Path, server_base: str) -> None:
 3. 选择 `.xlsx` booking form。
 4. 点击“上传并打开筛查结果”。
 5. 新标签页应直接打开带筛查结果的页面。
+
+重启验收：
+
+1. 重启电脑，或完全退出所有 Edge 窗口后重新打开 Edge。
+2. 打开 `edge://extensions/`，确认插件仍保持“已启用”，且没有加载错误。
+3. 重新打开 SMOOTH TMS，确认浮窗默认展开。
+4. 在 TMS 内切换页面或触发 SPA/DOM 重绘，确认浮窗被移除后会自动恢复，且不会重复出现。
 """
     (output_dir / "DEPLOYMENT.txt").write_text(note, encoding="utf-8")
 

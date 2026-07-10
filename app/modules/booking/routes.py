@@ -321,21 +321,62 @@ def body_validation_upload_paths(session_id: str) -> tuple[Path, Path]:
     return BODY_VALIDATION_UPLOAD_DIR / f"{session_id}.xlsx", BODY_VALIDATION_UPLOAD_DIR / f"{session_id}.json"
 
 
-def write_body_validation_upload(content: bytes, *, filename: str) -> str:
+def write_body_validation_upload(
+    content: bytes,
+    *,
+    filename: str,
+    origin_booking_session_id: str = "",
+) -> str:
     BODY_VALIDATION_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     session_id = uuid.uuid4().hex
     workbook_path, meta_path = body_validation_upload_paths(session_id)
     workbook_path.write_bytes(content)
-    meta_path.write_text(json.dumps({"filename": filename}, ensure_ascii=False), encoding="utf-8")
+    metadata = {"filename": filename}
+    origin_session_id = origin_booking_session_id.strip()
+    if origin_session_id and SESSION_ID_PATTERN.fullmatch(origin_session_id):
+        metadata["origin_booking_session_id"] = origin_session_id
+    meta_path.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
     return session_id
+
+
+def read_body_validation_upload_metadata(session_id: str) -> dict[str, Any]:
+    _, meta_path = body_validation_upload_paths(session_id)
+    if not meta_path.is_file():
+        raise FileNotFoundError("未找到上传文件缓存，请重新选择 booking form。")
+    metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+    if not isinstance(metadata, dict):
+        raise ValueError("上传文件缓存信息无效，请重新选择 booking form。")
+    return metadata
 
 
 def read_body_validation_upload(session_id: str) -> tuple[bytes, str]:
     workbook_path, meta_path = body_validation_upload_paths(session_id)
     if not workbook_path.is_file() or not meta_path.is_file():
         raise FileNotFoundError("未找到上传文件缓存，请重新选择 booking form。")
-    metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+    metadata = read_body_validation_upload_metadata(session_id)
     return workbook_path.read_bytes(), str(metadata.get("filename") or workbook_path.name)
+
+
+def sil_fuca_warehouse_mail_ready(session: dict[str, Any], preview: BookingPreview) -> bool:
+    if preview.supplier != "SIL-FUCA":
+        return False
+    customer_eml_text = str(session.get("booking_customer_eml_path") or "").strip()
+    return bool(customer_eml_text and Path(customer_eml_text).is_file())
+
+
+def body_validation_booking_return_url(validation_session_id: str) -> str:
+    try:
+        metadata = read_body_validation_upload_metadata(validation_session_id)
+        origin_session_id = str(metadata.get("origin_booking_session_id") or "").strip()
+        if not SESSION_ID_PATTERN.fullmatch(origin_session_id):
+            return ""
+        session = get_booking_session(origin_session_id)
+        preview = get_booking_preview(origin_session_id)
+    except (HTTPException, OSError, ValueError, json.JSONDecodeError):
+        return ""
+    if preview.session_id != origin_session_id or not sil_fuca_warehouse_mail_ready(session, preview):
+        return ""
+    return f"/modules/booking/preview/{origin_session_id}"
 
 
 def body_validation_context(
@@ -345,6 +386,7 @@ def body_validation_context(
     export_url: str = "",
     error: str = "",
     validation_session_id: str = "",
+    booking_return_url: str = "",
     delivery_cache_status: Any = None,
 ) -> dict[str, Any]:
     return {
@@ -353,6 +395,7 @@ def body_validation_context(
         "export_url": export_url,
         "error": error,
         "validation_session_id": validation_session_id,
+        "booking_return_url": booking_return_url,
         "delivery_cache_status": delivery_cache_status or get_all_delivery_list_cache_status(),
     }
 
@@ -403,13 +446,19 @@ async def booking_body_validation_page(request: Request) -> HTMLResponse:
 
 @router.get("/modules/booking/body-validation/from-preview/{session_id}", response_class=HTMLResponse)
 async def booking_body_validation_from_preview(request: Request, session_id: str) -> HTMLResponse:
+    booking_return_url = ""
     try:
         preview = get_booking_preview(session_id)
         if not preview.can_generate:
             raise BookingInputError("当前 Booking 预览存在错误，无法生成 booking form 进入质检。")
         output_path = write_booking_output(preview)
         content = output_path.read_bytes()
-        validation_session_id = write_body_validation_upload(content, filename=output_path.name)
+        validation_session_id = write_body_validation_upload(
+            content,
+            filename=output_path.name,
+            origin_booking_session_id=session_id if preview.supplier == "SIL-FUCA" else "",
+        )
+        booking_return_url = body_validation_booking_return_url(validation_session_id)
         body_preview = build_body_validation_preview(
             content,
             filename=output_path.name,
@@ -420,7 +469,7 @@ async def booking_body_validation_from_preview(request: Request, session_id: str
         return templates.TemplateResponse(
             request,
             "booking_body_validation.html",
-            body_validation_context(error=str(exc)),
+            body_validation_context(error=str(exc), booking_return_url=booking_return_url),
             status_code=400,
         )
     return templates.TemplateResponse(
@@ -429,12 +478,14 @@ async def booking_body_validation_from_preview(request: Request, session_id: str
         body_validation_context(
             preview=body_preview,
             validation_session_id=validation_session_id,
+            booking_return_url=booking_return_url,
         ),
     )
 
 
 @router.get("/modules/booking/body-validation/session/{session_id}", response_class=HTMLResponse)
 async def booking_body_validation_session_page(request: Request, session_id: str) -> HTMLResponse:
+    booking_return_url = body_validation_booking_return_url(session_id)
     try:
         content, filename = read_body_validation_upload(session_id)
         preview = build_body_validation_preview(
@@ -447,7 +498,11 @@ async def booking_body_validation_session_page(request: Request, session_id: str
         return templates.TemplateResponse(
             request,
             "booking_body_validation.html",
-            body_validation_context(error=str(exc)),
+            body_validation_context(
+                error=str(exc),
+                validation_session_id=session_id,
+                booking_return_url=booking_return_url,
+            ),
             status_code=400,
         )
     return templates.TemplateResponse(
@@ -456,6 +511,7 @@ async def booking_body_validation_session_page(request: Request, session_id: str
         body_validation_context(
             preview=preview,
             validation_session_id=session_id,
+            booking_return_url=booking_return_url,
         ),
     )
 
@@ -493,6 +549,7 @@ async def preview_booking_body_validation(
     manual_values_json: str = Form(""),
 ) -> HTMLResponse:
     session_id = validation_session_id.strip()
+    booking_return_url = ""
     if not booking_file and not session_id:
         return templates.TemplateResponse(
             request,
@@ -507,6 +564,7 @@ async def preview_booking_body_validation(
             session_id = write_body_validation_upload(content, filename=filename)
         else:
             content, filename = read_body_validation_upload(session_id)
+        booking_return_url = body_validation_booking_return_url(session_id)
 
         use_fixes = apply_fixes == "1"
         if use_fixes and refresh_delivery_list == "1":
@@ -537,7 +595,11 @@ async def preview_booking_body_validation(
         return templates.TemplateResponse(
             request,
             "booking_body_validation.html",
-            body_validation_context(error=str(exc)),
+            body_validation_context(
+                error=str(exc),
+                validation_session_id=session_id,
+                booking_return_url=booking_return_url,
+            ),
             status_code=400,
         )
     return templates.TemplateResponse(
@@ -548,6 +610,7 @@ async def preview_booking_body_validation(
             suggestion_preview=suggestion_preview,
             export_url=export_url,
             validation_session_id=session_id,
+            booking_return_url=booking_return_url,
         ),
     )
 
@@ -636,6 +699,25 @@ def get_booking_preview(session_id: str) -> BookingPreview:
         raise HTTPException(status_code=404, detail="未找到 Booking 预览记录。")
     session["booking_preview"] = preview
     return preview
+
+
+@router.get("/modules/booking/preview/{session_id}", response_class=HTMLResponse)
+async def restore_sil_fuca_booking_preview(request: Request, session_id: str) -> HTMLResponse:
+    if not SESSION_ID_PATTERN.fullmatch(session_id):
+        raise HTTPException(status_code=404, detail="未找到 SIL-FUCA Booking 预览记录。")
+    session = get_booking_session(session_id)
+    preview = get_booking_preview(session_id)
+    if preview.supplier != "SIL-FUCA" or preview.session_id != session_id:
+        raise HTTPException(status_code=404, detail="未找到 SIL-FUCA Booking 预览记录。")
+    return templates.TemplateResponse(
+        request,
+        "booking.html",
+        booking_page_context(
+            selected_supplier=preview.supplier,
+            preview=preview,
+            warehouse_mail_ready=sil_fuca_warehouse_mail_ready(session, preview),
+        ),
+    )
 
 
 @router.post("/modules/booking/generate/{session_id}")

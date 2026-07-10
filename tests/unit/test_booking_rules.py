@@ -4,16 +4,21 @@ from datetime import date
 from email import policy
 from email.message import EmailMessage
 from email.parser import BytesParser
+from functools import partial
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+from fastapi import UploadFile
 from openpyxl import Workbook, load_workbook
 
 import booking_store
+from app.modules.booking import mail_builder, service as booking_service
 from app.modules.booking.legacy_adapter import BookingPreview, build_booking_preview, write_booking_workbook
-from app.modules.booking import mail_builder
 from app.modules.booking.mail_builder import extract_sil_warehouse_no, replace_mail_template_values
 from app.modules.booking.rules.registry import SUPPLIER_RULES, get_supplier_names
+from app.shared.uploads import UploadValidationError, save_upload
 from booking_rules import vc_dzyq
 
 
@@ -201,6 +206,93 @@ def test_generate_sil_warehouse_eml_uses_html_default_template(monkeypatch, tmp_
     assert "SIL26040490" in html_part.get_content()
     assert "香港仓：5月1日" not in html_part.get_content()
     assert "香港仓：5月1日" not in plain_part.get_content()
+
+
+@pytest.mark.parametrize(
+    ("warehouse_filename", "payload", "expected_content_type"),
+    [
+        ("SIL26040490.pdf", b"%PDF-1.4\n%warehouse\n", "application/pdf"),
+        ("SIL26040490.xls", b"legacy warehouse workbook", "application/vnd.ms-excel"),
+        (
+            "SIL26040490.xlsx",
+            b"PK\x03\x04warehouse workbook",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+    ],
+)
+def test_write_sil_warehouse_mail_accepts_pdf_and_spreadsheets_as_attachments(
+    monkeypatch,
+    tmp_path: Path,
+    warehouse_filename: str,
+    payload: bytes,
+    expected_content_type: str,
+) -> None:
+    monkeypatch.setattr(
+        booking_service,
+        "save_upload",
+        partial(save_upload, upload_root=tmp_path / "uploads"),
+    )
+    monkeypatch.setattr(booking_service, "OUTPUT_DIR", tmp_path / "outputs")
+    monkeypatch.setattr(mail_builder, "RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(
+        mail_builder,
+        "load_sil_fuca_warehouse_template",
+        lambda: {"html": "", "plain": "", "assets": []},
+    )
+
+    customer_message = EmailMessage(policy=policy.SMTP)
+    customer_message["Subject"] = "MAWB# 98765432109"
+    customer_message.set_content("customer body")
+    customer_eml_path = tmp_path / "customer.eml"
+    customer_eml_path.write_bytes(customer_message.as_bytes())
+    preview = BookingPreview(
+        session_id="sil-warehouse-service",
+        supplier="SIL-FUCA",
+        source_filename="customer.eml",
+        pack_filename="",
+        rows=[{"P/N": "TEST"}],
+        columns=["P/N"],
+        email_subject="MAWB# 98765432109",
+    )
+
+    output_path = booking_service.write_warehouse_mail(
+        session_id=preview.session_id,
+        preview=preview,
+        customer_eml_path=customer_eml_path,
+        warehouse_file=UploadFile(file=BytesIO(payload), filename=warehouse_filename),
+    )
+
+    generated = BytesParser(policy=policy.default).parsebytes(output_path.read_bytes())
+    attachments = [part for part in generated.walk() if part.get_content_disposition() == "attachment"]
+    assert [part.get_filename() for part in attachments] == [f"booking_warehouse_{warehouse_filename}"]
+    assert attachments[0].get_content_type() == expected_content_type
+    assert attachments[0].get_payload(decode=True) == payload
+
+
+def test_write_sil_warehouse_mail_rejects_unlisted_attachment_type(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        booking_service,
+        "save_upload",
+        partial(save_upload, upload_root=tmp_path / "uploads"),
+    )
+
+    with pytest.raises(UploadValidationError, match=r"allowed suffixes: .*\.pdf.*\.xls.*\.xlsx"):
+        booking_service.write_warehouse_mail(
+            session_id="sil-warehouse-invalid",
+            preview=SimpleNamespace(supplier="SIL-FUCA"),
+            customer_eml_path=tmp_path / "customer.eml",
+            warehouse_file=UploadFile(file=BytesIO(b"not allowed"), filename="SIL26040490.docx"),
+        )
+
+
+def test_generate_sil_warehouse_eml_rejects_other_suppliers(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="只有 SIL-FUCA"):
+        mail_builder.generate_sil_fuca_warehouse_eml(
+            preview=SimpleNamespace(supplier="SIL-WEIKENG"),
+            customer_eml_path=tmp_path / "customer.eml",
+            warehouse_file_path=tmp_path / "SIL26040490.pdf",
+            output_path=tmp_path / "warehouse.eml",
+        )
 
 
 def test_vc_dzyq_rule_maps_desktop_document_requirements(monkeypatch, tmp_path) -> None:
