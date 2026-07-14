@@ -28,16 +28,78 @@ fi
 mkdir -p "$SSL_DIR"
 CA_KEY="$SSL_DIR/my-autowork-local-ca.key"
 CA_CERT="$SSL_DIR/my-autowork-local-ca.crt"
+CA_OPENSSL_CNF="$SSL_DIR/my-autowork-ca-openssl.cnf"
 SERVER_KEY="$SSL_DIR/my-autowork.key"
 SERVER_CSR="$SSL_DIR/my-autowork.csr"
 SERVER_CERT="$SSL_DIR/my-autowork.crt"
 OPENSSL_CNF="$SSL_DIR/my-autowork-openssl.cnf"
 
-if [ ! -f "$CA_KEY" ] || [ ! -f "$CA_CERT" ]; then
+cat > "$CA_OPENSSL_CNF" <<'EOF'
+[req]
+prompt = no
+distinguished_name = dn
+x509_extensions = v3_ca
+
+[dn]
+CN = My Autowork Local CA
+
+[v3_ca]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, keyCertSign, cRLSign
+EOF
+
+ca_key_matches_certificate() {
+    local key_digest cert_digest
+    key_digest="$(
+        "$OPENSSL_BIN" pkey -in "$CA_KEY" -pubout 2>/dev/null \
+            | "$OPENSSL_BIN" pkey -pubin -outform DER 2>/dev/null \
+            | "$OPENSSL_BIN" dgst -sha256
+    )" || return 1
+    cert_digest="$(
+        "$OPENSSL_BIN" x509 -in "$CA_CERT" -pubkey -noout 2>/dev/null \
+            | "$OPENSSL_BIN" pkey -pubin -outform DER 2>/dev/null \
+            | "$OPENSSL_BIN" dgst -sha256
+    )" || return 1
+    [ "$key_digest" = "$cert_digest" ]
+}
+
+ca_certificate_has_required_extensions() {
+    local certificate_text basic_constraints key_usage
+    certificate_text="$("$OPENSSL_BIN" x509 -in "$CA_CERT" -noout -text 2>/dev/null)" \
+        || return 1
+    basic_constraints="$(printf '%s\n' "$certificate_text" | awk '
+        /X509v3 Basic Constraints: critical/ { getline; print; exit }
+    ')"
+    key_usage="$(printf '%s\n' "$certificate_text" | awk '
+        /X509v3 Key Usage: critical/ { getline; print; exit }
+    ')"
+    case "$basic_constraints" in
+        *CA:TRUE*) ;;
+        *) return 1 ;;
+    esac
+    case "$key_usage" in
+        *"Certificate Sign"*"CRL Sign"*) ;;
+        *) return 1 ;;
+    esac
+}
+
+if [ ! -f "$CA_KEY" ]; then
     "$OPENSSL_BIN" genrsa -out "$CA_KEY" 4096
+    rm -f "$CA_CERT"
+fi
+
+if [ -f "$CA_CERT" ] && ! ca_key_matches_certificate; then
+    echo "Existing CA certificate does not match the CA private key; refusing to replace it." >&2
+    exit 1
+fi
+
+if [ ! -f "$CA_CERT" ] || ! ca_certificate_has_required_extensions; then
     "$OPENSSL_BIN" req -x509 -new -nodes -key "$CA_KEY" -sha256 -days 3650 \
         -out "$CA_CERT" \
-        -subj "/CN=My Autowork Local CA"
+        -config "$CA_OPENSSL_CNF" \
+        -extensions v3_ca
 fi
 
 cat > "$OPENSSL_CNF" <<EOF
