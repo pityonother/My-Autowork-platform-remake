@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Booking Form 质检助手",
   "description": "在公司 TMS 页面右下角显示 booking form 质检上传入口。",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "permissions": [
     "storage"
   ],

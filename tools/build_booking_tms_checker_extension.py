@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import shutil
@@ -17,14 +18,30 @@ DEFAULT_SERVER_PORT = os.environ.get("BOOKING_TMS_CHECKER_DEFAULT_PORT", "8010")
 
 def normalize_server_base(value: str) -> str:
     server_base = value.strip().rstrip("/")
-    if "://" not in server_base:
+    had_scheme = "://" in server_base
+    if not had_scheme:
         server_base = f"https://{server_base}"
     parsed = urlparse(server_base)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("server base must be a full http(s) URL, for example https://192.168.10.205:8010")
+        raise ValueError(
+            "server base must be a full http(s) URL, "
+            "for example https://booking.tools.home.arpa"
+        )
     if parsed.params or parsed.query or parsed.fragment:
         raise ValueError("server base must not include params, query, or fragment")
-    if parsed.port is None and DEFAULT_SERVER_PORT:
+    hostname = parsed.hostname or ""
+    try:
+        is_legacy_host = hostname.lower() == "localhost" or bool(
+            ipaddress.ip_address(hostname)
+        )
+    except ValueError:
+        is_legacy_host = hostname.lower() == "localhost"
+    if (
+        not had_scheme
+        and parsed.port is None
+        and DEFAULT_SERVER_PORT
+        and is_legacy_host
+    ):
         hostname = parsed.hostname or parsed.netloc
         if ":" in hostname and not hostname.startswith("["):
             hostname = f"[{hostname}]"
@@ -76,6 +93,7 @@ def write_deployment_note(output_dir: Path, server_base: str) -> None:
 - 如果 Edge 或公司的浏览器策略将它停用，代码无法绕过 Edge 的停用，也不会修改 Windows 注册表或 Edge 策略。
 - 被停用时需要手动重新启用，或由 IT 另行部署受管扩展。
 - Edge 会记住本文件夹的绝对路径；安装后不要移动、重命名或删除本文件夹，更新时覆盖原目录并点击“重新加载”。
+- 旧版用户的服务地址保存在 chrome.storage.local；更新后请点击插件图标，将地址改为 {server_base} 并保存一次。
 
 验收：
 
@@ -122,7 +140,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--server-base",
         required=True,
-        help="Booking Web service base URL, for example https://192.168.10.205:8010",
+        help="Booking Web service base URL, for example https://booking.tools.home.arpa",
     )
     parser.add_argument(
         "--output-dir",

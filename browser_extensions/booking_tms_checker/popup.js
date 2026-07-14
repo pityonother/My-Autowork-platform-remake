@@ -6,11 +6,13 @@ const STORAGE_TOKEN_KEY = 'bookingAccessToken';
 
 function normalizeBase(value) {
   const raw = String(value || '').trim() || DEFAULT_SERVER_BASE;
-  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+  const hadScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw);
+  const withScheme = hadScheme ? raw : `https://${raw}`;
   const hasExplicitPort = /^[a-z][a-z0-9+.-]*:\/\/(?:\[[^\]]+\]|[^/:?#]+):\d+/i.test(withScheme);
   try {
     const url = new URL(withScheme);
-    if (!url.port && DEFAULT_SERVER_PORT && !hasExplicitPort) {
+    const isLegacyHost = url.hostname === 'localhost' || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname);
+    if (!hadScheme && !url.port && DEFAULT_SERVER_PORT && !hasExplicitPort && isLegacyHost) {
       url.port = DEFAULT_SERVER_PORT;
     }
     return url.toString().replace(/\/+$/, '');
@@ -32,7 +34,7 @@ chrome.storage.local.get({ [STORAGE_KEY]: DEFAULT_SERVER_BASE, [STORAGE_TOKEN_KE
 saveButton.addEventListener('click', () => {
   const value = normalizeBase(input.value);
   if (!/^https?:\/\/[^/]+/i.test(value)) {
-    status.textContent = '请输入完整地址，例如 https://127.0.0.1:8010';
+    status.textContent = '请输入完整地址，例如 https://booking.tools.home.arpa';
     status.style.color = '#c2204a';
     return;
   }

@@ -14,6 +14,7 @@ def test_booking_tms_extension_manifest_is_limited_to_tms_page() -> None:
     manifest = json.loads((EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
 
     assert manifest["manifest_version"] == 3
+    assert manifest["version"] == "0.1.1"
     assert manifest["permissions"] == ["storage"]
     matches = manifest["content_scripts"][0]["matches"]
     assert "http://www.clztoud.com:8008/SupplierInquiry/*" in matches
@@ -76,29 +77,39 @@ def test_booking_tms_extension_reads_defaults_from_single_config_source() -> Non
 
 def test_booking_tms_extension_normalizes_missing_scheme_and_port() -> None:
     assert normalize_server_base("192.168.10.205") == "https://192.168.10.205:8010"
-    assert normalize_server_base("https://192.168.10.205") == "https://192.168.10.205:8010"
-    assert normalize_server_base("https://192.168.10.205:9443") == "https://192.168.10.205:9443"
-    assert normalize_server_base("https://192.168.10.205:443") == "https://192.168.10.205:443"
+    assert normalize_server_base("https://192.168.10.205") == "https://192.168.10.205"
+    assert normalize_server_base("https://192.168.10.205:9443") == (
+        "https://192.168.10.205:9443"
+    )
+    assert normalize_server_base("https://192.168.10.205:443") == (
+        "https://192.168.10.205:443"
+    )
+    assert normalize_server_base("booking.tools.home.arpa") == (
+        "https://booking.tools.home.arpa"
+    )
+    assert normalize_server_base("https://booking.tools.home.arpa") == (
+        "https://booking.tools.home.arpa"
+    )
 
 
 def test_booking_tms_extension_build_package_injects_server_base(tmp_path) -> None:
     output_dir = tmp_path / "booking_tms_checker_edge"
 
-    package_dir, zip_path = build_package("https://192.168.10.205/", output_dir=output_dir)
+    package_dir, zip_path = build_package("https://booking.tools.home.arpa/", output_dir=output_dir)
 
     assert package_dir == output_dir.resolve()
     assert zip_path.is_file()
-    assert 'defaultServerBase: "https://192.168.10.205:8010"' in (package_dir / "config.js").read_text(
-        encoding="utf-8"
-    )
+    config_js = (package_dir / "config.js").read_text(encoding="utf-8")
+    assert 'defaultServerBase: "https://booking.tools.home.arpa"' in config_js
     assert 'defaultServerPort: "8010"' in (package_dir / "config.js").read_text(encoding="utf-8")
     deployment_note = (package_dir / "DEPLOYMENT.txt").read_text(encoding="utf-8")
-    assert "https://192.168.10.205:8010" in deployment_note
+    assert "https://booking.tools.home.arpa" in deployment_note
     assert "保持“已启用”" in deployment_note
     assert "代码无法绕过 Edge 的停用" in deployment_note
     assert "不要移动、重命名或删除" in deployment_note
     assert "重启电脑" in deployment_note
     assert "重新打开 Edge" in deployment_note
+    assert "chrome.storage.local" in deployment_note
     with zipfile.ZipFile(zip_path) as archive:
         names = set(archive.namelist())
     assert "booking_tms_checker_edge/manifest.json" in names
@@ -117,6 +128,7 @@ def test_booking_tms_extension_docs_explain_unpacked_restart_boundary() -> None:
         assert "不要移动、重命名或删除" in document
         assert "重启电脑" in document
         assert "重新打开 Edge" in document
+        assert "chrome.storage.local" in document
 
 
 def test_booking_tms_extension_rejects_invalid_server_base() -> None:

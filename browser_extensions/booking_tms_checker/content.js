@@ -20,11 +20,13 @@
 
   function normalizeBase(value) {
     const raw = String(value || '').trim() || DEFAULT_SERVER_BASE;
-    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+    const hadScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw);
+    const withScheme = hadScheme ? raw : `https://${raw}`;
     const hasExplicitPort = /^[a-z][a-z0-9+.-]*:\/\/(?:\[[^\]]+\]|[^/:?#]+):\d+/i.test(withScheme);
     try {
       const url = new URL(withScheme);
-      if (!url.port && DEFAULT_SERVER_PORT && !hasExplicitPort) {
+      const isLegacyHost = url.hostname === 'localhost' || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(url.hostname);
+      if (!hadScheme && !url.port && DEFAULT_SERVER_PORT && !hasExplicitPort && isLegacyHost) {
         url.port = DEFAULT_SERVER_PORT;
       }
       return url.toString().replace(/\/+$/, '');

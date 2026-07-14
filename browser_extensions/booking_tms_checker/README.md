@@ -15,11 +15,15 @@
 
 ## 配置 Mac mini 地址
 
-点击浏览器工具栏里的插件图标，填写 Mac mini 内网地址，例如：
+点击浏览器工具栏里的插件图标，填写完整的 Booking 服务地址。办公室当前地址为：
 
 ```text
-https://<Mac-mini-IP>:8010
+https://booking.tools.home.arpa
 ```
+
+不要只填写旧 IP。域名由办公室核心路由解析，HTTPS 由 Mac mini 上的 Caddy 转发到 Booking Web 服务。
+
+已安装过旧版插件的电脑会在 `chrome.storage.local` 中保留原来的地址。覆盖新版文件并在 `edge://extensions/` 点击“重新加载”后，还要点击插件图标，把服务地址改成上述域名并保存一次。
 
 源码里的本地开发默认值是：
 
@@ -30,8 +34,10 @@ https://127.0.0.1:8010
 给同事部署时不要手工改源码，使用打包脚本生成带默认服务地址的版本：
 
 ```powershell
-python tools\build_booking_tms_checker_extension.py --server-base https://<Mac-mini-IP>:8010
+python tools\build_booking_tms_checker_extension.py --server-base https://booking.tools.home.arpa
 ```
+
+没有内网 DNS 时可以使用带明确端口的 IP 回退地址，例如 `https://192.168.10.4:8042`。
 
 详细步骤见 `DEPLOYMENT.md`。
 

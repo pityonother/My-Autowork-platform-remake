@@ -4,26 +4,26 @@
 
 ## 1. Mac mini 启动 Booking Web 服务
 
-服务必须监听内网网卡，不能只监听 `127.0.0.1`：
+办公室当前由独立 Booking Web 服务监听 `8042`，Caddy 再把标准 HTTPS 域名转发到该端口。服务必须监听内网网卡，不能只监听 `127.0.0.1`：
 
-```powershell
-python -m uvicorn reconcile_web_app:app --host 0.0.0.0 --port 8010
+```bash
+BOOKING_WEB_HOST=0.0.0.0 BOOKING_WEB_PORT=8042 /Users/Shared/booking_web_lan.sh
 ```
 
-同事电脑需要能打开：
+同事电脑需要能打开办公室 HTTPS 域名：
 
 ```text
-https://<Mac-mini-IP>:8010/modules/booking/body-validation
+https://booking.tools.home.arpa/modules/booking/body-validation
 ```
 
-如果打不开，先检查 Mac mini 防火墙、端口、内网 IP 是否正确。
+如果打不开，先确认客户端通过 DHCP 使用 `192.168.10.1` 作为 DNS，并已安装办公室本地 CA 证书；再检查 Mac mini 防火墙和 Caddy 状态。
 
 ## 2. 生成同事安装用插件包
 
 在项目根目录运行：
 
 ```powershell
-python tools\build_booking_tms_checker_extension.py --server-base https://<Mac-mini-IP>:8010
+python tools\build_booking_tms_checker_extension.py --server-base https://booking.tools.home.arpa
 ```
 
 脚本会生成：
@@ -47,12 +47,14 @@ dist\booking_tms_checker_edge.zip
 
 Edge 会记住所选文件夹的绝对路径。安装后请长期保留 `dist\booking_tms_checker_edge`，不要移动、重命名或删除；更新包时覆盖原目录并点击“重新加载”。
 
+插件设置保存在 `chrome.storage.local`。旧版用户更新到域名版后，原来的 IP 不会被安装包强制覆盖；需要点击插件图标，将服务地址改为 `https://booking.tools.home.arpa` 并保存一次。
+
 ## 4. 验收
 
 1. SMOOTH TMS 右下角出现“Booking 质检”浮窗。
 2. 选择 `.xlsx` booking form。
 3. 点击“上传并打开筛查结果”。
-4. 新标签页打开 `https://<Mac-mini-IP>:8010/modules/booking/body-validation/session/...`。
+4. 新标签页打开 `https://booking.tools.home.arpa/modules/booking/body-validation/session/...`。
 5. 页面直接显示源数据导入表和错误标红。
 6. 点击“查看修正建议”后出现第二张建议表。
 7. 可以导出修正版。
@@ -69,7 +71,7 @@ Edge 会记住所选文件夹的绝对路径。安装后请长期保留 `dist\bo
 
 ## 5. 地址变更
 
-如果 Mac mini IP 或端口变化，有两种方式：
+如果内网域名变化，有两种方式：
 
 - 重新运行打包脚本，发新版插件目录给同事。
 - 让同事点击插件图标，在设置里手动填写新的服务地址，然后刷新 TMS 页面。

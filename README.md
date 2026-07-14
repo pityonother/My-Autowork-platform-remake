@@ -72,15 +72,17 @@ LauncherTool/runtime/module_data/<module_id>
 
 ## Mac mini LAN 部署
 
-Mac mini 可作为局域网服务。脚本默认把代码和 runtime 分开，服务地址、端口、证书和数据目录通过环境变量配置。详细步骤见 [MAC_MINI_DEPLOY.md](MAC_MINI_DEPLOY.md) 和 [docs/deployment_config.md](docs/deployment_config.md)。
+Mac mini 可作为局域网服务。脚本默认把代码和 runtime 分开，服务地址、端口、证书和数据目录通过环境变量配置。详细步骤见 [MAC_MINI_DEPLOY.md](MAC_MINI_DEPLOY.md)、[docs/deployment_config.md](docs/deployment_config.md) 和 [docs/mac_mini_lan_deployment.md](docs/mac_mini_lan_deployment.md)。
 
 ## Booking TMS Extension
 
 源码里的扩展默认值只用于开发。给同事部署时，应通过构建脚本注入当前服务地址：
 
 ```powershell
-python tools\build_booking_tms_checker_extension.py --server-base https://<Mac-mini-IP>:8010
+python tools\build_booking_tms_checker_extension.py --server-base https://booking.tools.home.arpa
 ```
+
+办公室部署的标准 HTTPS 域名不需要填写端口；直接 IP 回退地址仍应显式写端口。
 
 安装和验收见 [browser_extensions/booking_tms_checker/README.md](browser_extensions/booking_tms_checker/README.md)。
 
