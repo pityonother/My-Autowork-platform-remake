@@ -302,7 +302,6 @@ def generate_sil_fuca_warehouse_eml(
     message["Subject"] = subject
     message["From"] = '"op19@hkctwl.net" <op19@hkctwl.net>'
     message["To"] = "hong <hong@hkctwl.net>, lydia <lydia@hkctwl.net>, mavis <mavis@hkctwl.net>, sanford <sanford@hkctwl.net>, warehouse <warehouse@smooth-global.com>"
-    message["Cc"] = "sil <sil@hkctwl.net>"
     template = load_sil_fuca_warehouse_template()
     plain_body = remove_obsolete_sil_holiday_notice(
         replace_mail_template_values(template.get("plain") or "", mawb_no, warehouse_no)

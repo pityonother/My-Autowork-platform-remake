@@ -206,6 +206,7 @@ def test_generate_sil_warehouse_eml_uses_html_default_template(monkeypatch, tmp_
     assert "SIL26040490" in html_part.get_content()
     assert "香港仓：5月1日" not in html_part.get_content()
     assert "香港仓：5月1日" not in plain_part.get_content()
+    assert "sil@hkctwl.net" not in str(message.get("Cc") or "").lower()
 
 
 @pytest.mark.parametrize(
