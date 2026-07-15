@@ -305,19 +305,19 @@ def test_generate_mail_from_saved_session_reuses_uploads_after_review_confirmati
     assert output_path.read_text(encoding="utf-8") == "UFO26052201.pdf"
 
 
-def test_ufo_mail_settings_use_default_recipients(monkeypatch, tmp_path) -> None:
+def test_ufo_mail_settings_start_empty_without_saved_values(monkeypatch, tmp_path) -> None:
     import ufo_mail_store
 
     monkeypatch.setattr(ufo_mail_store, "DB_PATH", tmp_path / "ufo_mail.db")
 
     assert ufo_mail_store.get_ufo_mail_settings() == {
-        "to_email": "cn.shzmaterialshippingimport2023@flex.com",
-        "cc_email": "fexin@smooth-global.com",
-        "from_email": "op19@hkctwl.net",
+        "to_email": "",
+        "cc_email": "",
+        "from_email": "",
     }
 
 
-def test_ufo_mail_settings_are_fixed_even_after_save(monkeypatch, tmp_path) -> None:
+def test_ufo_mail_settings_preserve_saved_values_after_reinitialization(monkeypatch, tmp_path) -> None:
     import ufo_mail_store
 
     monkeypatch.setattr(ufo_mail_store, "DB_PATH", tmp_path / "ufo_mail.db")
@@ -330,10 +330,43 @@ def test_ufo_mail_settings_are_fixed_even_after_save(monkeypatch, tmp_path) -> N
     ufo_mail_store.init_ufo_db()
 
     assert ufo_mail_store.get_ufo_mail_settings() == {
-        "to_email": "cn.shzmaterialshippingimport2023@flex.com",
-        "cc_email": "fexin@smooth-global.com",
-        "from_email": "op19@hkctwl.net",
+        "to_email": "to@example.com",
+        "cc_email": "cc@example.com",
+        "from_email": "from@example.com",
     }
+
+
+def test_generate_ufo_eml_uses_saved_client_mail_settings(monkeypatch, tmp_path) -> None:
+    from email import policy
+    from email.parser import BytesParser
+
+    import ufo_mail_store
+
+    monkeypatch.setattr(ufo_mail_store, "DB_PATH", tmp_path / "ufo_mail.db")
+    monkeypatch.setattr(ufo_mail_store, "SIGNATURE_DIR", tmp_path / "ufo_signature")
+    ufo_mail_store.save_ufo_mail_settings(
+        to_email="to@example.com",
+        cc_email="cc@example.com",
+        from_email="from@example.com",
+    )
+    output_path = tmp_path / "ufo.eml"
+
+    ufo_mail_store.generate_ufo_eml(
+        ufo_mail_store.UfoMailInput(
+            ufo_no="UFO26052201",
+            to_email="",
+            cc_email="",
+            from_email="",
+            issue_ids=[1],
+            attachments=[],
+        ),
+        output_path,
+    )
+
+    message = BytesParser(policy=policy.default).parsebytes(output_path.read_bytes())
+    assert str(message["To"]) == "to@example.com"
+    assert str(message["Cc"]) == "cc@example.com"
+    assert str(message["From"]) == "from@example.com"
 
 
 def test_ufo_config_package_roundtrips_settings_issues_and_signature_assets(monkeypatch, tmp_path) -> None:
@@ -385,9 +418,9 @@ def test_ufo_config_package_roundtrips_settings_issues_and_signature_assets(monk
 
     assert result["summary"]["has_signature"] is True
     assert ufo_mail_store.get_ufo_mail_settings() == {
-        "to_email": "cn.shzmaterialshippingimport2023@flex.com",
-        "cc_email": "fexin@smooth-global.com",
-        "from_email": "op19@hkctwl.net",
+        "to_email": "team@example.com",
+        "cc_email": "cc@example.com",
+        "from_email": "me@example.com",
     }
     assert any(issue["short_en"] == "Test issue" for issue in ufo_mail_store.list_ufo_issues(include_inactive=True))
     signature = ufo_mail_store.get_ufo_signature_settings()

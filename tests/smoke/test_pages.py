@@ -32,6 +32,30 @@ def test_ufo_mail_cache_button_renders_chinese_text() -> None:
     assert "????" not in response.text
 
 
+def test_ufo_mail_client_can_save_and_reload_recipient_settings(monkeypatch, tmp_path) -> None:
+    import ufo_mail_store
+
+    monkeypatch.setattr(ufo_mail_store, "DB_PATH", tmp_path / "ufo_mail.db")
+    monkeypatch.setattr(ufo_mail_store, "SIGNATURE_DIR", tmp_path / "ufo_signature")
+    client = TestClient(main_app, follow_redirects=False)
+
+    save_response = client.post(
+        "/modules/ufo-mail/settings",
+        data={
+            "to_email": "to@example.com",
+            "cc_email": "cc@example.com",
+            "from_email": "from@example.com",
+        },
+    )
+    page_response = client.get("/modules/ufo-mail")
+
+    assert save_response.status_code == 303
+    assert save_response.headers["location"] == "/modules/ufo-mail#generate"
+    assert 'name="to_email" value="to@example.com"' in page_response.text
+    assert 'name="cc_email" value="cc@example.com"' in page_response.text
+    assert 'name="from_email" value="from@example.com"' in page_response.text
+
+
 def test_ufo_mail_low_confidence_review_confirmation_renders(monkeypatch, tmp_path) -> None:
     import ufo_mail_store
     from app.modules.ufo_mail import routes
@@ -63,8 +87,9 @@ def test_ufo_mail_low_confidence_review_confirmation_renders(monkeypatch, tmp_pa
     assert "/modules/ufo-mail/generate/confirm-review" in response.text
     assert 'name="session_id" value="abc123def456"' in response.text
     assert 'name="ufo_no" value="UFO26052203"' in response.text
-    assert 'name="to_email" value="cn.shzmaterialshippingimport2023@flex.com"' in response.text
-    assert 'name="from_email" value="op19@hkctwl.net"' in response.text
+    assert 'name="to_email" value="to@example.com"' in response.text
+    assert 'name="cc_email" value=""' in response.text
+    assert 'name="from_email" value="from@example.com"' in response.text
 
 
 def test_booking_standalone_entry_opens() -> None:

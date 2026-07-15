@@ -81,15 +81,15 @@
                     </label>
                     <label class="field">
                         <span>收件人 To</span>
-                        <input type="text" name="to_email" value="{{ form_state.to_email or mail_settings.to_email }}" placeholder="customer@example.com" autocomplete="off" readonly>
+                        <input type="text" name="to_email" value="{{ form_state.to_email or mail_settings.to_email }}" placeholder="customer@example.com" autocomplete="off">
                     </label>
                     <label class="field">
                         <span>抄送 Cc</span>
-                        <input type="text" name="cc_email" value="{{ form_state.cc_email or mail_settings.cc_email }}" placeholder="多个邮箱用逗号分隔" autocomplete="off" readonly>
+                        <input type="text" name="cc_email" value="{{ form_state.cc_email or mail_settings.cc_email }}" placeholder="多个邮箱用逗号分隔" autocomplete="off">
                     </label>
                     <label class="field">
                         <span>发件人 From</span>
-                        <input type="text" name="from_email" value="{{ form_state.from_email or mail_settings.from_email }}" placeholder="yourname@example.com" autocomplete="off" readonly>
+                        <input type="text" name="from_email" value="{{ form_state.from_email or mail_settings.from_email }}" placeholder="yourname@example.com" autocomplete="off">
                     </label>
                 </div>
                 <div class="ufo-memory-actions">

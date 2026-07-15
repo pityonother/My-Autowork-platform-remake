@@ -91,3 +91,13 @@ def test_ufo_settings_save_button_bypasses_generate_form_validation() -> None:
     button_end = text.index(">", button_start)
 
     assert "formnovalidate" in text[button_start:button_end]
+
+
+def test_ufo_mail_recipient_fields_are_client_editable() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    text = (project_root / "templates" / "ufo_mail.html").read_text(encoding="utf-8")
+
+    for field_name in ("to_email", "cc_email", "from_email"):
+        input_start = text.index(f'name="{field_name}"', text.index('id="ufo-generate-form"'))
+        input_end = text.index(">", input_start)
+        assert "readonly" not in text[input_start:input_end]

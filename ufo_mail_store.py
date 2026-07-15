@@ -26,14 +26,7 @@ UFO_CONFIG_PACKAGE_TYPE = "ufo_mail_runtime_config"
 UFO_CONFIG_DB_NAME = "ufo_mail.db"
 UFO_CONFIG_MANIFEST_NAME = "manifest.json"
 UFO_CONFIG_SIGNATURE_PREFIX = "ufo_signature/"
-DEFAULT_UFO_TO_EMAIL = "cn.shzmaterialshippingimport2023@flex.com"
-DEFAULT_UFO_CC_EMAIL = "fexin@smooth-global.com"
-DEFAULT_UFO_FROM_EMAIL = "op19@hkctwl.net"
-FIXED_UFO_MAIL_SETTINGS = {
-    "to_email": DEFAULT_UFO_TO_EMAIL,
-    "cc_email": DEFAULT_UFO_CC_EMAIL,
-    "from_email": DEFAULT_UFO_FROM_EMAIL,
-}
+UFO_MAIL_SETTING_KEYS = ("to_email", "cc_email", "from_email")
 
 DEFAULT_ISSUES = [
     (
@@ -171,13 +164,23 @@ def clean_text(value: str | None) -> str:
 
 def get_ufo_mail_settings() -> dict[str, str]:
     init_ufo_db()
-    return dict(FIXED_UFO_MAIL_SETTINGS)
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT setting_key, setting_value FROM ufo_mail_settings WHERE setting_key IN (?, ?, ?)",
+            UFO_MAIL_SETTING_KEYS,
+        ).fetchall()
+    saved = {row["setting_key"]: row["setting_value"] for row in rows}
+    return {key: saved.get(key, "") for key in UFO_MAIL_SETTING_KEYS}
 
 
 def save_ufo_mail_settings(*, to_email: str, cc_email: str, from_email: str) -> None:
     init_ufo_db()
     now = datetime.now().isoformat(timespec="seconds")
-    values = dict(FIXED_UFO_MAIL_SETTINGS)
+    values = {
+        "to_email": clean_text(to_email),
+        "cc_email": clean_text(cc_email),
+        "from_email": clean_text(from_email),
+    }
     with get_connection() as conn:
         conn.executemany(
             """
