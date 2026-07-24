@@ -101,3 +101,35 @@ def test_ufo_mail_recipient_fields_are_client_editable() -> None:
         input_start = text.index(f'name="{field_name}"', text.index('id="ufo-generate-form"'))
         input_end = text.index(">", input_start)
         assert "readonly" not in text[input_start:input_end]
+
+
+def test_ufo_issue_cards_support_free_drag_and_personal_ordering() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    text = (project_root / "templates" / "ufo_mail.html").read_text(encoding="utf-8")
+    css = (project_root / "static" / "modules" / "ufo_mail" / "styles.css").read_text(encoding="utf-8")
+
+    required_markup = [
+        'id="ufo-issue-search"',
+        'id="ufo-arrange-issues-btn"',
+        'id="ufo-arrange-save-btn"',
+        'id="ufo-arrange-cancel-btn"',
+        'id="ufo-arrange-reset-btn"',
+        'id="ufo-issue-grid"',
+        'data-ufo-issue-id="{{ issue.id }}"',
+    ]
+    for fragment in required_markup:
+        assert fragment in text
+
+    required_drag_behaviour = [
+        "ufo-issue-personal-order-v1",
+        "pointerdown",
+        "pointermove",
+        "pointerup",
+        "elementsFromPoint",
+        "ufo-drag-ghost",
+    ]
+    for fragment in required_drag_behaviour:
+        assert fragment in text
+
+    assert "ufo-step-buttons" not in text
+    assert ".ufo-issue-tile[hidden]" in css

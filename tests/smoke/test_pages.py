@@ -32,6 +32,17 @@ def test_ufo_mail_cache_button_renders_chinese_text() -> None:
     assert "????" not in response.text
 
 
+def test_ufo_mail_reason_arranger_renders() -> None:
+    client = TestClient(main_app)
+    response = client.get("/modules/ufo-mail")
+
+    assert response.status_code == 200
+    assert 'id="ufo-issue-search"' in response.text
+    assert 'id="ufo-arrange-issues-btn"' in response.text
+    assert 'id="ufo-issue-grid"' in response.text
+    assert 'data-ufo-issue-id=' in response.text
+
+
 def test_ufo_mail_client_can_save_and_reload_recipient_settings(monkeypatch, tmp_path) -> None:
     import ufo_mail_store
 

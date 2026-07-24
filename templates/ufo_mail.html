@@ -117,21 +117,53 @@
             <div class="ufo-subsection">
                 <div class="ufo-subsection-head">
                     <h3>③ 勾选反馈问题</h3>
-                    <span class="ufo-count" id="ufo-issue-count" data-count="0">已勾选 0 项</span>
+                    <div class="ufo-issue-head-actions">
+                        <span class="ufo-count" id="ufo-issue-count" data-count="0">已勾选 0 项</span>
+                        <button type="button" class="ufo-arrange-trigger" id="ufo-arrange-issues-btn" aria-pressed="false">
+                            整理理由顺序
+                        </button>
+                    </div>
                 </div>
                 {% if active_issues %}
-                <div class="ufo-issue-grid">
+                <div class="ufo-issue-toolbar">
+                    <label class="ufo-issue-search">
+                        <span aria-hidden="true">⌕</span>
+                        <input type="search" id="ufo-issue-search" placeholder="搜索中文、英文或说明" autocomplete="off">
+                    </label>
+                    <span class="ufo-muted" id="ufo-issue-visible-count" aria-live="polite"></span>
+                </div>
+                <div class="ufo-arrange-notice" id="ufo-arrange-notice" hidden>
+                    <strong>像移动手机 App 一样：</strong>
+                    按住整张卡片直接拖到想要的位置，其他卡片会实时让位。
+                </div>
+                <div class="ufo-issue-grid" id="ufo-issue-grid">
                     {% for issue in active_issues %}
-                    <label class="ufo-issue-tile">
-                        <input type="checkbox" name="issue_ids" value="{{ issue.id }}" {% if issue.id in selected_issue_ids %}checked{% endif %}>
-                        <span class="ufo-issue-indicator" aria-hidden="true"></span>
-                        <span class="ufo-issue-body">
+                    <article
+                        class="ufo-issue-tile"
+                        data-ufo-issue-id="{{ issue.id }}"
+                        data-ufo-issue-search="{{ issue.short_cn }} {{ issue.short_en }} {{ issue.detail_en }}"
+                    >
+                        <label class="ufo-issue-select">
+                            <input type="checkbox" name="issue_ids" value="{{ issue.id }}" {% if issue.id in selected_issue_ids %}checked{% endif %}>
+                            <span class="ufo-issue-indicator" aria-hidden="true"></span>
                             <span class="ufo-issue-cn">{{ issue.short_cn }}</span>
+                        </label>
+                        <span class="ufo-drag-handle" aria-hidden="true">⠿</span>
+                        <button type="button" class="ufo-issue-preview-btn" aria-expanded="false">查看英文</button>
+                        <div class="ufo-issue-preview" hidden>
                             <span class="ufo-issue-en">{{ issue.short_en }}</span>
                             <span class="ufo-issue-detail">{{ issue.detail_en }}</span>
-                        </span>
-                    </label>
+                        </div>
+                    </article>
                     {% endfor %}
+                </div>
+                <div class="ufo-arrange-actions" id="ufo-arrange-actions" hidden>
+                    <span class="ufo-arrange-status" id="ufo-arrange-status" aria-live="polite">拖动后请保存个人顺序</span>
+                    <div class="ufo-arrange-buttons">
+                        <button type="button" class="ufo-arrange-btn" id="ufo-arrange-cancel-btn">取消</button>
+                        <button type="button" class="ufo-arrange-btn" id="ufo-arrange-reset-btn">恢复默认</button>
+                        <button type="button" class="ufo-arrange-btn is-primary" id="ufo-arrange-save-btn">保存个人顺序</button>
+                    </div>
                 </div>
                 {% else %}
                 <p class="empty">问题库当前没有启用中的问题。请先到下方 <a href="#issue-library">问题反馈库</a> 新增或启用问题。</p>
@@ -335,6 +367,22 @@
     var fileSummary = document.getElementById('ufo-file-summary');
     var dropzone = document.getElementById('ufo-dropzone');
     var clearCacheBtn = document.getElementById('ufo-clear-cache-btn');
+    var issueGrid = document.getElementById('ufo-issue-grid');
+    var issueSearch = document.getElementById('ufo-issue-search');
+    var issueVisibleCount = document.getElementById('ufo-issue-visible-count');
+    var arrangeBtn = document.getElementById('ufo-arrange-issues-btn');
+    var arrangeNotice = document.getElementById('ufo-arrange-notice');
+    var arrangeActions = document.getElementById('ufo-arrange-actions');
+    var arrangeStatus = document.getElementById('ufo-arrange-status');
+    var arrangeSaveBtn = document.getElementById('ufo-arrange-save-btn');
+    var arrangeCancelBtn = document.getElementById('ufo-arrange-cancel-btn');
+    var arrangeResetBtn = document.getElementById('ufo-arrange-reset-btn');
+    var issueOrderStorageKey = 'ufo-issue-personal-order-v1';
+    var defaultIssueOrder = [];
+    var arrangeStartOrder = [];
+    var isArrangingIssues = false;
+    var activeIssueDrag = null;
+    var suppressIssueClickUntil = 0;
 
     if (clearCacheBtn) {
         clearCacheBtn.addEventListener('click', function () {
@@ -375,6 +423,326 @@
         }
         countEl.textContent = '已勾选 ' + checked + ' 项';
         countEl.dataset.count = String(checked);
+    }
+
+    function getIssueCards() {
+        if (!issueGrid) return [];
+        return Array.prototype.slice.call(issueGrid.querySelectorAll('[data-ufo-issue-id]'));
+    }
+
+    function getIssueOrder() {
+        return getIssueCards().map(function (card) {
+            return String(card.dataset.ufoIssueId);
+        });
+    }
+
+    function normaliseIssueOrder(order) {
+        var current = getIssueOrder();
+        var currentSet = {};
+        var used = {};
+        var result = [];
+        var candidates = Array.isArray(order) ? order : [];
+
+        current.forEach(function (id) {
+            currentSet[id] = true;
+        });
+        candidates.forEach(function (value) {
+            var id = String(value);
+            if (currentSet[id] && !used[id]) {
+                used[id] = true;
+                result.push(id);
+            }
+        });
+        current.forEach(function (id) {
+            if (!used[id]) result.push(id);
+        });
+        return result;
+    }
+
+    function applyIssueOrder(order) {
+        if (!issueGrid) return;
+        var cardsById = {};
+        getIssueCards().forEach(function (card) {
+            cardsById[String(card.dataset.ufoIssueId)] = card;
+        });
+        normaliseIssueOrder(order).forEach(function (id) {
+            if (cardsById[id]) issueGrid.appendChild(cardsById[id]);
+        });
+    }
+
+    function loadSavedIssueOrder() {
+        try {
+            var saved = window.localStorage.getItem(issueOrderStorageKey);
+            if (!saved) return;
+            applyIssueOrder(JSON.parse(saved));
+        } catch (error) {
+            // A blocked or malformed local preference must never block mail generation.
+        }
+    }
+
+    function saveIssueOrder() {
+        try {
+            window.localStorage.setItem(issueOrderStorageKey, JSON.stringify(getIssueOrder()));
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    function updateVisibleIssueCount() {
+        if (!issueVisibleCount) return;
+        var cards = getIssueCards();
+        var visible = cards.filter(function (card) {
+            return !card.hidden;
+        }).length;
+        issueVisibleCount.textContent = issueSearch && issueSearch.value.trim()
+            ? '找到 ' + visible + ' 条'
+            : '共 ' + cards.length + ' 条';
+    }
+
+    function filterIssues() {
+        var query = issueSearch ? issueSearch.value.trim().toLocaleLowerCase() : '';
+        getIssueCards().forEach(function (card) {
+            var searchableText = (card.dataset.ufoIssueSearch || '').toLocaleLowerCase();
+            card.hidden = Boolean(query && searchableText.indexOf(query) === -1);
+        });
+        updateVisibleIssueCount();
+    }
+
+    function closeIssuePreviews() {
+        getIssueCards().forEach(function (card) {
+            var preview = card.querySelector('.ufo-issue-preview');
+            var button = card.querySelector('.ufo-issue-preview-btn');
+            if (preview) preview.hidden = true;
+            if (button) {
+                button.setAttribute('aria-expanded', 'false');
+                button.textContent = '查看英文';
+            }
+        });
+    }
+
+    function setArrangeMode(enabled) {
+        isArrangingIssues = enabled;
+        form.classList.toggle('is-arranging-issues', enabled);
+        if (issueGrid) issueGrid.classList.toggle('is-arranging', enabled);
+        if (arrangeNotice) arrangeNotice.hidden = !enabled;
+        if (arrangeActions) arrangeActions.hidden = !enabled;
+        if (arrangeBtn) {
+            arrangeBtn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            arrangeBtn.textContent = enabled ? '正在整理' : '整理理由顺序';
+        }
+        if (issueSearch) issueSearch.disabled = enabled;
+        getIssueCards().forEach(function (card) {
+            if (enabled) card.setAttribute('tabindex', '0');
+            else card.removeAttribute('tabindex');
+        });
+        if (!enabled) {
+            document.body.classList.remove('ufo-is-dragging');
+            activeIssueDrag = null;
+        }
+    }
+
+    function enterArrangeMode() {
+        if (!issueGrid || isArrangingIssues) return;
+        arrangeStartOrder = getIssueOrder();
+        if (issueSearch) {
+            issueSearch.value = '';
+            filterIssues();
+        }
+        closeIssuePreviews();
+        if (arrangeStatus) arrangeStatus.textContent = '拖动后请保存个人顺序';
+        setArrangeMode(true);
+        var firstCard = getIssueCards()[0];
+        if (firstCard) firstCard.focus({ preventScroll: true });
+    }
+
+    function leaveArrangeMode() {
+        setArrangeMode(false);
+        updateVisibleIssueCount();
+        if (arrangeBtn) arrangeBtn.focus({ preventScroll: true });
+    }
+
+    function captureIssueRects() {
+        var rects = {};
+        getIssueCards().forEach(function (card) {
+            rects[String(card.dataset.ufoIssueId)] = card.getBoundingClientRect();
+        });
+        return rects;
+    }
+
+    function animateIssueReflow(beforeRects) {
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        window.requestAnimationFrame(function () {
+            getIssueCards().forEach(function (card) {
+                var before = beforeRects[String(card.dataset.ufoIssueId)];
+                if (!before) return;
+                var after = card.getBoundingClientRect();
+                var deltaX = before.left - after.left;
+                var deltaY = before.top - after.top;
+                if (!deltaX && !deltaY) return;
+                card.animate(
+                    [
+                        { transform: 'translate(' + deltaX + 'px, ' + deltaY + 'px)' },
+                        { transform: 'translate(0, 0)' }
+                    ],
+                    { duration: 180, easing: 'cubic-bezier(.2,.75,.35,1)' }
+                );
+            });
+        });
+    }
+
+    function positionIssueGhost(clientX, clientY) {
+        if (!activeIssueDrag) return;
+        activeIssueDrag.ghost.style.left = (clientX - activeIssueDrag.offsetX) + 'px';
+        activeIssueDrag.ghost.style.top = (clientY - activeIssueDrag.offsetY) + 'px';
+    }
+
+    function findIssueCardAtPoint(clientX, clientY) {
+        var elements = document.elementsFromPoint(clientX, clientY);
+        for (var i = 0; i < elements.length; i++) {
+            if (!elements[i].closest) continue;
+            var card = elements[i].closest('[data-ufo-issue-id]');
+            if (card && card !== activeIssueDrag.card && card.parentElement === issueGrid) return card;
+        }
+        return null;
+    }
+
+    function beginIssueDrag(event, card) {
+        if (!isArrangingIssues || activeIssueDrag || event.button > 0) return;
+        event.preventDefault();
+        var rect = card.getBoundingClientRect();
+        var ghost = card.cloneNode(true);
+        ghost.classList.remove('is-placeholder', 'is-checked');
+        ghost.classList.add('ufo-drag-ghost');
+        ghost.setAttribute('aria-hidden', 'true');
+        ghost.removeAttribute('tabindex');
+        ghost.style.width = rect.width + 'px';
+        ghost.style.height = rect.height + 'px';
+        document.body.appendChild(ghost);
+
+        activeIssueDrag = {
+            pointerId: event.pointerId,
+            card: card,
+            ghost: ghost,
+            offsetX: event.clientX - rect.left,
+            offsetY: event.clientY - rect.top,
+            moved: false
+        };
+        card.classList.add('is-placeholder');
+        document.body.classList.add('ufo-is-dragging');
+        positionIssueGhost(event.clientX, event.clientY);
+    }
+
+    function moveIssueDrag(event) {
+        if (!activeIssueDrag || event.pointerId !== activeIssueDrag.pointerId) return;
+        event.preventDefault();
+        activeIssueDrag.moved = true;
+        positionIssueGhost(event.clientX, event.clientY);
+
+        if (event.clientY < 84) window.scrollBy(0, -14);
+        else if (event.clientY > window.innerHeight - 84) window.scrollBy(0, 14);
+
+        var target = findIssueCardAtPoint(event.clientX, event.clientY);
+        if (!target) return;
+        var cards = getIssueCards();
+        var sourceIndex = cards.indexOf(activeIssueDrag.card);
+        var targetIndex = cards.indexOf(target);
+        if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) return;
+
+        var beforeRects = captureIssueRects();
+        if (sourceIndex < targetIndex) issueGrid.insertBefore(activeIssueDrag.card, target.nextSibling);
+        else issueGrid.insertBefore(activeIssueDrag.card, target);
+        animateIssueReflow(beforeRects);
+        if (arrangeStatus) arrangeStatus.textContent = '顺序已调整，松手后记得保存';
+    }
+
+    function endIssueDrag(event) {
+        if (!activeIssueDrag || event.pointerId !== activeIssueDrag.pointerId) return;
+        var finishedDrag = activeIssueDrag;
+        finishedDrag.card.classList.remove('is-placeholder');
+        finishedDrag.ghost.remove();
+        document.body.classList.remove('ufo-is-dragging');
+        activeIssueDrag = null;
+        suppressIssueClickUntil = Date.now() + 300;
+        if (finishedDrag.moved && arrangeStatus) arrangeStatus.textContent = '已放到新位置，点击“保存个人顺序”完成';
+        finishedDrag.card.focus({ preventScroll: true });
+    }
+
+    if (issueGrid) {
+        defaultIssueOrder = getIssueOrder();
+        loadSavedIssueOrder();
+        updateVisibleIssueCount();
+
+        issueGrid.addEventListener('click', function (event) {
+            if (isArrangingIssues || Date.now() < suppressIssueClickUntil) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            var previewButton = event.target.closest('.ufo-issue-preview-btn');
+            if (!previewButton) return;
+            var card = previewButton.closest('.ufo-issue-tile');
+            var preview = card ? card.querySelector('.ufo-issue-preview') : null;
+            if (!preview) return;
+            var willOpen = preview.hidden;
+            preview.hidden = !willOpen;
+            previewButton.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            previewButton.textContent = willOpen ? '收起英文' : '查看英文';
+        }, true);
+
+        issueGrid.addEventListener('pointerdown', function (event) {
+            var card = event.target.closest('[data-ufo-issue-id]');
+            if (card) beginIssueDrag(event, card);
+        });
+        window.addEventListener('pointermove', moveIssueDrag, { passive: false });
+        window.addEventListener('pointerup', endIssueDrag);
+        window.addEventListener('pointercancel', endIssueDrag);
+
+        issueGrid.addEventListener('keydown', function (event) {
+            if (!isArrangingIssues) return;
+            var card = event.target.closest('[data-ufo-issue-id]');
+            if (!card) return;
+            var step = 0;
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') step = -1;
+            if (event.key === 'ArrowRight' || event.key === 'ArrowDown') step = 1;
+            if (!step) return;
+            event.preventDefault();
+            var cards = getIssueCards();
+            var currentIndex = cards.indexOf(card);
+            var nextIndex = currentIndex + step;
+            if (nextIndex < 0 || nextIndex >= cards.length) return;
+            var beforeRects = captureIssueRects();
+            var target = cards[nextIndex];
+            if (step < 0) issueGrid.insertBefore(card, target);
+            else issueGrid.insertBefore(card, target.nextSibling);
+            animateIssueReflow(beforeRects);
+            if (arrangeStatus) arrangeStatus.textContent = '顺序已调整，点击“保存个人顺序”完成';
+            card.focus({ preventScroll: true });
+        });
+    }
+
+    if (issueSearch) issueSearch.addEventListener('input', filterIssues);
+    if (arrangeBtn) arrangeBtn.addEventListener('click', enterArrangeMode);
+    if (arrangeCancelBtn) {
+        arrangeCancelBtn.addEventListener('click', function () {
+            applyIssueOrder(arrangeStartOrder);
+            leaveArrangeMode();
+        });
+    }
+    if (arrangeResetBtn) {
+        arrangeResetBtn.addEventListener('click', function () {
+            applyIssueOrder(defaultIssueOrder);
+            if (arrangeStatus) arrangeStatus.textContent = '已恢复系统默认顺序，保存后生效';
+        });
+    }
+    if (arrangeSaveBtn) {
+        arrangeSaveBtn.addEventListener('click', function () {
+            if (!saveIssueOrder()) {
+                if (arrangeStatus) arrangeStatus.textContent = '浏览器未允许保存，请检查隐私设置后重试';
+                return;
+            }
+            leaveArrangeMode();
+        });
     }
 
     function formatSize(bytes) {
