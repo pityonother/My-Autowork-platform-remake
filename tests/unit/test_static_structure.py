@@ -133,3 +133,37 @@ def test_ufo_issue_cards_support_free_drag_and_personal_ordering() -> None:
 
     assert "ufo-step-buttons" not in text
     assert ".ufo-issue-tile[hidden]" in css
+
+
+def test_ufo_reason_workspace_matches_approved_site_and_throttles_drag() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    text = (project_root / "templates" / "ufo_mail.html").read_text(encoding="utf-8")
+    css = (project_root / "static" / "modules" / "ufo_mail" / "styles.css").read_text(encoding="utf-8")
+
+    for fragment in (
+        "ufo-reason-workspace",
+        'id="ufo-reason-filter-row"',
+        'data-ufo-issue-category=',
+        "ufo-category-tag",
+        "ufo-position-number",
+        'id="ufo-detail-panel"',
+        'id="ufo-reason-dock"',
+    ):
+        assert fragment in text
+
+    for fragment in (
+        "dragFrameRequest",
+        "requestAnimationFrame(flushIssueDragFrame)",
+        "translate3d",
+        "getAnimations().forEach",
+        "lastTargetId",
+    ):
+        assert fragment in text
+
+    for fragment in (
+        "--ufo-reason-forest: #1f5545",
+        "grid-template-columns: repeat(4, minmax(0, 1fr))",
+        "min-height: 164px",
+        "background: rgba(18, 60, 49, 0.94)",
+    ):
+        assert fragment in css

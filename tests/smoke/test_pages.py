@@ -39,7 +39,10 @@ def test_ufo_mail_reason_arranger_renders() -> None:
     assert response.status_code == 200
     assert 'id="ufo-issue-search"' in response.text
     assert 'id="ufo-arrange-issues-btn"' in response.text
+    assert 'id="ufo-reason-filter-row"' in response.text
     assert 'id="ufo-issue-grid"' in response.text
+    assert 'id="ufo-detail-panel"' in response.text
+    assert 'id="ufo-reason-dock"' in response.text
     assert 'data-ufo-issue-id=' in response.text
 
 
